@@ -11,7 +11,7 @@ priority-donate-nest FAIL
 alarm-single PASS
 priority-donate-multiple2 FAIL
 mlfqs-load-avg FAIL
-alarm-priority FAIL
+alarm-priority PASS
 priority-fifo FAIL
 priority-sema FAIL
 mlfqs-recent-1 FAIL

@@ -597,6 +597,8 @@ bool wakeup_tick_less(const struct list_elem *a_, const struct list_elem *b_, vo
 {
 	const struct thread *a = list_entry(a_, struct thread, elem);
 	const struct thread *b = list_entry(b_, struct thread, elem);
-
+	if(a->wakeup_tick == b->wakeup_tick){
+		return a->priority>b->priority;
+	}
 	return a->wakeup_tick < b->wakeup_tick;
 }
