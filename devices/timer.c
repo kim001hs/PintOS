@@ -7,7 +7,7 @@
 #include "threads/io.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
-#include "timer.h"
+// #include "timer.h"
 
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -67,16 +67,15 @@ void timer_calibrate(void)
 	printf("%'" PRIu64 " loops/s.\n", (uint64_t)loops_per_tick * TIMER_FREQ);
 }
 
-
 void NewFunction()
 {
-loops_per_tick = 1u << 10;
+	loops_per_tick = 1u << 10;
 	while (!too_many_loops(loops_per_tick << 1))
 	{
 		loops_per_tick <<= 1;
 		ASSERT(loops_per_tick != 0);
 	}
-}/* Returns the number of timer ticks since the OS booted. */
+} /* Returns the number of timer ticks since the OS booted. */
 int64_t
 timer_ticks(void)
 {
@@ -162,11 +161,12 @@ too_many_loops(unsigned loops)
 	Marked NO_INLINE because code alignment can significantly
 	affect timings, so that if this function was inlined
 	differently in different places the results would be difficult
-   	to predict. */
+	to predict. */
 static void NO_INLINE
 busy_wait(int64_t loops)
 {
-	while (loops-- > 0){
+	while (loops-- > 0)
+	{
 		barrier();
 	}
 }

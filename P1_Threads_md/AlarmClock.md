@@ -47,33 +47,6 @@
 
   * **예시 구현 구조:**
 
-    ```c
-    // devices/timer.c
-    void timer_sleep (int64_t ticks) {
-        int64_t start = timer_ticks();
-        struct thread *curr = thread_current();
-        enum intr_level old_level;
-
-        if (ticks <= 0)
-            return;
-
-        // 인터럽트 비활성화
-        old_level = intr_disable();
-
-        // 1. 깨어나야 할 시간 설정
-        curr->wakeup_tick = start + ticks;
-
-        // 2. sleep_list에 정렬하여 삽입
-        list_insert_ordered(&sleep_list, &curr->elem, (list_less_func *)compare_thread_wakeup_tick, NULL);
-
-        // 3. 스레드 차단 (schedule()을 통해 다른 스레드로 전환됨)
-        thread_block();
-
-        // 인터럽트 수준 복원
-        intr_set_level(old_level);
-    }
-    ```
-
     > **참고:** `list_insert_ordered()` 사용을 위해 **`compare_thread_wakeup_tick`** 같은 비교 함수가 \*\*`thread.c`\*\*에 정의되어야 합니다.
 
 ### 4\. 타이머 인터럽트 핸들러 수정 (`devices/timer.c`)
@@ -84,29 +57,7 @@
   * **깨우기:** 조건이 충족된 스레드를 목록에서 제거하고 \*\*`thread_unblock()`\*\*을 사용하여 \*\*준비 큐(ready queue)\*\*로 이동시킵니다.
   * **반복:** 목록의 **다음 스레드**도 깨울 시간이 되었는지 확인하고, 시간이 되지 않은 스레드가 나올 때까지 반복합니다.
   * **`timer_interrupt()` 내에서 호출될 함수 구조:**
-    ```c
-    // devices/timer.c
-    void thread_check_sleep_list(int64_t current_tick) {
-        // 인터럽트 핸들러 내에서 호출되므로 이미 인터럽트가 비활성화된 상태일 수 있음.
-        // 하지만 안전을 위해 thread_unblock()을 호출하기 전에 intr_disable()이 호출되었는지 확인하거나
-        // 이 함수 내에서 리스트 접근 시 인터럽트를 관리해야 함.
 
-        while (!list_empty(&sleep_list)) {
-            struct list_elem *e = list_begin(&sleep_list);
-            struct thread *t = list_entry(e, struct thread, elem);
-
-            if (t->wakeup_tick <= current_tick) {
-                // 깨울 시간이 된 경우
-                list_pop_front(&sleep_list);
-                thread_unblock(t); // 준비 큐로 이동
-            } else {
-                // 가장 먼저 깨어날 스레드도 아직 시간이 안 되었다면,
-                // 목록은 정렬되어 있으므로 나머지 스레드도 확인 불필요
-                break;
-            }
-        }
-    }
-    ```
 
 이러한 재구현은 스레드가 차단 상태에서 CPU를 포기하게 하여 **바쁜 대기를 제거**하고 시스템 자원을 효율적으로 사용하도록 합니다.
 
