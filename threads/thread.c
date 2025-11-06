@@ -269,6 +269,7 @@ thread_current (void) {
 	return t;
 }
 
+
 /* Returns the running thread's tid. */
 tid_t
 thread_tid (void) {
@@ -587,4 +588,15 @@ allocate_tid (void) {
 	lock_release (&tid_lock);
 
 	return tid;
+}
+
+//추가
+/* Returns true if value A is less than value B, false
+   otherwise. */
+bool wakeup_tick_less(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED)
+{
+	const struct thread *a = list_entry(a_, struct thread, elem);
+	const struct thread *b = list_entry(b_, struct thread, elem);
+
+	return a->wakeup_tick < b->wakeup_tick;
 }

@@ -115,11 +115,16 @@ enum intr_level
 intr_get_level (void) {
 	uint64_t flags;
 
-	/* Push the flags register on the processor stack, then pop the
-	   value off the stack into `flags'.  See [IA32-v2b] "PUSHF"
-	   and "POP" and [IA32-v3a] 5.8.1 "Masking Maskable Hardware
-	   Interrupts". */
-	asm volatile ("pushfq; popq %0" : "=g" (flags));
+	/* 	Push the flags register on the processor stack, then pop the
+		value off the stack into `flags'.  See [IA32-v2b] "PUSHF"
+		and "POP" and [IA32-v3a] 5.8.1 "Masking Maskable Hardware
+	   	Interrupts". */
+	asm volatile ("pushfq; popq %0" : "=g" (flags)); //CPU의 플래그 레지스터(RFLAGS)를 읽어 C 변수 flags에 저장
+	// pushfq: 64비트 RFLAGS 값을 스택에 푸시합니다.
+	// popq %0: 스택 탑 값을 지정한 출력 오퍼랜드(여기서는 C 변수 flags)로 팝합니다.
+	// ": "=g" (flags)": GCC 인라인 어셈블리 출력 제약 — 어떤 적절한 레지스터/메모리 위치든 써서 flags에 저장하라는 의미입니다.
+	// asm volatile: 컴파일러가 이 어셈블리를 제거하거나 재정렬하지 못하게 합니다.
+	// 인터럽트 허용 여부(IF 비트)나 다른 플래그를 읽어 저장/복원하거나 조건 검사할 때 사용합니다.
 
 	return flags & FLAG_IF ? INTR_ON : INTR_OFF;
 }
@@ -151,9 +156,9 @@ enum intr_level
 intr_disable (void) {
 	enum intr_level old_level = intr_get_level ();
 
-	/* Disable interrupts by clearing the interrupt flag.
-	   See [IA32-v2b] "CLI" and [IA32-v3a] 5.8.1 "Masking Maskable
-	   Hardware Interrupts". */
+	/* 	Disable interrupts by clearing the interrupt flag.
+		See [IA32-v2b] "CLI" and [IA32-v3a] 5.8.1 "Masking Maskable
+	   	Hardware Interrupts". */
 	asm volatile ("cli" : : : "memory");
 
 	return old_level;
