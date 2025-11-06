@@ -1,0 +1,113 @@
+**알람 시계** 부분, 즉 **`timer_sleep()` 함수를 바쁜 대기(busy waiting) 없이 재구현**하는 것입니다.
+
+현재 `timer_sleep()`은 루프를 돌며 `thread_yield()`를 호출하는 방식으로 동작하는데, 이는 CPU 자원을 낭비합니다. 재구현의 목표는 **스레드를 차단(block) 상태로 만들었다가** 지정된 시간(`ticks`)이 지난 후 **준비 큐(ready queue)에 넣어** 깨우는 것입니다.
+
+## ⏰ `timer_sleep()` 재구현 목표 (Alarm Clock)
+
+-----
+
+새로운 `timer_sleep(int64_t ticks)` 구현은 다음과 같은 단계로 진행되어야 하며, **동기화 기본 요소**를 사용하여 **바쁜 대기를 피해야** 합니다.
+
+### 1\. 스레드 구조체 수정 (`threads/thread.h`)
+
+현재 실행 중인 스레드가 언제 깨어나야 하는지 기록할 수 있도록 \*\*`struct thread`\*\*에 새 필드를 추가해야 합니다.
+
+  * **`wakeup_tick` 필드 추가:**
+    ```c
+    // threads/thread.h
+    struct thread {
+        /* ... 기존 필드 ... */
+        int64_t wakeup_tick;  /**< 스레드가 깨어나야 할 시각 (타이머 틱). */
+        /* ... 추가할 수 있는 다른 필드 ... */
+    };
+    ```
+    이 필드는 \*\*`timer_sleep()`\*\*이 호출될 때 현재 틱(`timer_ticks()`)에 인수인 `ticks`를 더한 값으로 설정됩니다.
+
+### 2\. 스레드를 재울 목록 생성 (`threads/thread.c`)
+
+잠든 스레드들을 관리할 \*\*전역 목록(global list)\*\*을 `threads/thread.c`에 선언해야 합니다. 이 목록은 **가장 먼저 깨어나야 하는 스레드 순서대로 정렬**되어야 나중에 타이머 인터럽트 핸들러에서 효율적으로 처리할 수 있습니다.
+
+  * **`sleep_list` 선언:**
+    ```c
+    // threads/thread.c
+    static struct list sleep_list; /**< 잠든 스레드를 위한 목록. */
+    ```
+
+### 3\. `timer_sleep()` 구현 (`devices/timer.c`)
+
+호출 스레드를 \*\*`sleep_list`\*\*에 넣고 차단합니다.
+
+  * **계산:** 스레드가 깨어나야 할 시각(`wakeup_tick`)을 계산합니다.
+
+  * **동기화:** 스레드 상태(특히 `sleep_list`와 `wakeup_tick`)에 접근하는 동안 **인터럽트를 비활성화**해야 합니다. (커널 스레드와 인터럽트 핸들러 간의 공유 데이터이므로)
+
+  * **삽입 및 정렬:** 현재 스레드의 `wakeup_tick`을 설정하고, `sleep_list`에 적절히 **정렬하여 삽입**합니다.
+
+  * **차단:** 현재 스레드를 차단(`thread_block()`)합니다.
+
+  * **예시 구현 구조:**
+
+    ```c
+    // devices/timer.c
+    void timer_sleep (int64_t ticks) {
+        int64_t start = timer_ticks();
+        struct thread *curr = thread_current();
+        enum intr_level old_level;
+
+        if (ticks <= 0)
+            return;
+
+        // 인터럽트 비활성화
+        old_level = intr_disable();
+
+        // 1. 깨어나야 할 시간 설정
+        curr->wakeup_tick = start + ticks;
+
+        // 2. sleep_list에 정렬하여 삽입
+        list_insert_ordered(&sleep_list, &curr->elem, (list_less_func *)compare_thread_wakeup_tick, NULL);
+
+        // 3. 스레드 차단 (schedule()을 통해 다른 스레드로 전환됨)
+        thread_block();
+
+        // 인터럽트 수준 복원
+        intr_set_level(old_level);
+    }
+    ```
+
+    > **참고:** `list_insert_ordered()` 사용을 위해 **`compare_thread_wakeup_tick`** 같은 비교 함수가 \*\*`thread.c`\*\*에 정의되어야 합니다.
+
+### 4\. 타이머 인터럽트 핸들러 수정 (`devices/timer.c`)
+
+타이머 틱이 발생할 때마다 **`timer_interrupt()`** 핸들러(인터럽트가 발생할 때마다 호출됨)에서 \*\*`sleep_list`\*\*를 확인하고, **깨울 시간이 된 스레드**를 깨워야 합니다.
+
+  * **확인:** 현재 시간(`timer_ticks()`)이 `sleep_list`의 **가장 앞쪽 스레드**의 `wakeup_tick`과 같거나 커졌는지 확인합니다.
+  * **깨우기:** 조건이 충족된 스레드를 목록에서 제거하고 \*\*`thread_unblock()`\*\*을 사용하여 \*\*준비 큐(ready queue)\*\*로 이동시킵니다.
+  * **반복:** 목록의 **다음 스레드**도 깨울 시간이 되었는지 확인하고, 시간이 되지 않은 스레드가 나올 때까지 반복합니다.
+  * **`timer_interrupt()` 내에서 호출될 함수 구조:**
+    ```c
+    // devices/timer.c
+    void thread_check_sleep_list(int64_t current_tick) {
+        // 인터럽트 핸들러 내에서 호출되므로 이미 인터럽트가 비활성화된 상태일 수 있음.
+        // 하지만 안전을 위해 thread_unblock()을 호출하기 전에 intr_disable()이 호출되었는지 확인하거나
+        // 이 함수 내에서 리스트 접근 시 인터럽트를 관리해야 함.
+
+        while (!list_empty(&sleep_list)) {
+            struct list_elem *e = list_begin(&sleep_list);
+            struct thread *t = list_entry(e, struct thread, elem);
+
+            if (t->wakeup_tick <= current_tick) {
+                // 깨울 시간이 된 경우
+                list_pop_front(&sleep_list);
+                thread_unblock(t); // 준비 큐로 이동
+            } else {
+                // 가장 먼저 깨어날 스레드도 아직 시간이 안 되었다면,
+                // 목록은 정렬되어 있으므로 나머지 스레드도 확인 불필요
+                break;
+            }
+        }
+    }
+    ```
+
+이러한 재구현은 스레드가 차단 상태에서 CPU를 포기하게 하여 **바쁜 대기를 제거**하고 시스템 자원을 효율적으로 사용하도록 합니다.
+
+-----
