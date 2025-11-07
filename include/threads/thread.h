@@ -147,4 +147,5 @@ void do_iret (struct intr_frame *tf);
 
 //추가
 bool wakeup_tick_less(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
+bool priority_greater(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
 #endif /* threads/thread.h */

@@ -29,7 +29,7 @@ static bool too_many_loops(unsigned loops);
 static void busy_wait(int64_t loops);
 static void real_time_sleep(int64_t num, int32_t denom);
 
-//추가한 함수 및 변수
+// 추가한 함수 및 변수
 static struct list sleep_list;
 static void insert_sleeping_list(int64_t wake_up_time);
 static void check_wakeup();
@@ -46,7 +46,7 @@ void timer_init(void)
 	outb(0x43, 0x34); /* CW: counter 0, LSB then MSB, mode 2, binary. */
 	outb(0x40, count & 0xff);
 	outb(0x40, count >> 8);
-	
+
 	intr_register_ext(0x20, timer_interrupt, "8254 Timer");
 	list_init(&sleep_list);
 }
@@ -97,80 +97,55 @@ timer_elapsed(int64_t then)
 	return timer_ticks() - then;
 }
 
-// todo: busy waiting을 피하는 방식으로 다시 구현
-// sleeping_list를 만들고 오름차순으로 정렬함 어차피 thread_yield하면 우선순위는 자동으로 됨
-// sleeping_list는 전역 리스트로 만들고 스레드들을 틱 기준 오름차순으로 넣음
-// 뺄 때 는 매 틱마다 sleeping_list의 맨 앞을 확인해서 깨울 시간인지 확인하고 깨움??<한번에 여러 스레드 관리하니까 조금 더 효율적이긴 할듯
-// 아니면 min_tick 변수를 전역으로 만들어서 다음에 깨워야 할 스레드의 tick을 저장해놓고 매 틱마다 그 tick이 되었는지 확인하는 방법도 있음
-// sleeping_list는 연렬리스트로 구성>중간삽입이 쉽기 때문 단일로?
-// next와 스레드 struct를 가리키는 포인터, +tick
-// 전역변수로 sleeping_list* sl_head만 하면 되지 않을까
-// 리스트에 들어간 스레드를 분리시키는 것과 깨우는 함수가 필요
-// thread_yield(void)라는게 있는데 이걸로는 스레드를 깨우지 못할 것 같음
-// sleeping_list에서 스레드를 제거하고 ready_list에 넣어주는 함수가 필요
-// list_push_back (&ready_list, &t->elem); 혹은 thread_unblock (struct thread *t)사용하는듯 thread.c
-// thread_block,thread_unblock이 이미 있음>리스트만 구현하면 될 듯(insert, 한번에 wake up);
-// tick을 저장할 때 절대시간으로 저장해야 함>그래야 오름차순이 됨
+//ticks만큼 재우는 함수
+void timer_sleep(int64_t ticks)
+{
+	int64_t start = timer_ticks();		  // 함수를 호출한 시점의 시간틱
+	int64_t wake_up_time = start + ticks; // 깨어날 절대 시간틱
+	ASSERT(intr_get_level() == INTR_ON);  // 인터럽트 가능한지 확인 아니면 종료
 
-	void timer_sleep(int64_t ticks)
+	enum intr_level old_level = intr_disable();
+	struct thread *cur = thread_current();
+	cur->wakeup_tick = wake_up_time;
+	list_insert_ordered(&sleep_list, &cur->elem, wakeup_tick_less, NULL);
+	thread_block(); // 현재 실행중인 스레드 블락
+	// insert_sleeping_list(wake_up_time);	  // sleeping_list에 삽입
+	intr_set_level(old_level);
+}
+
+// 현재 실행중인 스레드> 구조체에 있는 status를 THREAD_BLOCKED로 바꾸고 리스트에 오름차순으로 삽입
+static void insert_sleeping_list(int64_t wake_up_time)
+{
+	struct thread *cur = thread_current();
+	cur->wakeup_tick = wake_up_time;
+	// 오름차순 삽입
+	list_insert_ordered(&sleep_list, &cur->elem, wakeup_tick_less, NULL);
+	thread_block(); // 현재 실행중인 스레드 블락
+}
+
+// 매 틱마다? 가장 앞에 있는 스레드의 wakeup_tick을 확인하고 맞으면 깨워줌
+static void check_wakeup(void)
+{
+	int64_t now = timer_ticks();
+	bool need_yield = false;
+
+	while (!list_empty(&sleep_list))
 	{
-		int64_t start = timer_ticks();		  // 함수를 호출한 시점의 시간틱
-		int64_t wake_up_time = start + ticks; // 깨어날 절대 시간틱
-		ASSERT(intr_get_level() == INTR_ON);  // 인터럽트 가능한지 확인 아니면 종료
+		struct thread *head = list_entry(list_front(&sleep_list), struct thread, elem);
+		if (now < head->wakeup_tick)
+			break;
 
-		enum intr_level old_level = intr_disable();
-		struct thread *cur = thread_current();
-		cur->wakeup_tick = wake_up_time;
-		list_insert_ordered(&sleep_list, &cur->elem, wakeup_tick_less, NULL);
-		thread_block(); // 현재 실행중인 스레드 블락
-		// insert_sleeping_list(wake_up_time);	  // sleeping_list에 삽입
-		intr_set_level(old_level);
+		list_pop_front(&sleep_list);
+		thread_unblock(head);
+
+		if (head->priority > thread_current()->priority)
+			need_yield = true;
 	}
 
-	// 현재 실행중인 스레드> 구조체에 있는 status를 THREAD_BLOCKED로 바꾸고 리스트에 오름차순으로 삽입
-	static void insert_sleeping_list(int64_t wake_up_time)
-	{
-		struct thread *cur = thread_current();
-		cur->wakeup_tick = wake_up_time;
-		// 오름차순 삽입
-		list_insert_ordered(&sleep_list, &cur->elem, wakeup_tick_less, NULL);
-		thread_block(); // 현재 실행중인 스레드 블락
-	}
-
-	// 매 틱마다? 가장 앞에 있는 스레드의 wakeup_tick을 확인하고 맞으면 깨워줌
-	static void check_wakeup(void)
-	{
-		int64_t now = timer_ticks();
-		bool need_yield = false;
-
-		while (!list_empty(&sleep_list))
-		{
-			struct thread *head = list_entry(list_front(&sleep_list), struct thread, elem);
-			if (now < head->wakeup_tick)
-				break;
-
-			list_pop_front(&sleep_list);
-			thread_unblock(head);
-
-			if (head->priority > thread_current()->priority)
-				need_yield = true;
-		}
-
-		/* 인터럽트 핸들러 종료 후 yield 예약 */
-		if (need_yield)
-			intr_yield_on_return();
-	}
-
-
-// // 틱만큼 sleep시키는 함수
-// void timer_sleep(int64_t ticks)
-// {
-// 	int64_t start = timer_ticks();
-
-// 	ASSERT(intr_get_level() == INTR_ON); // 인터럽트 가능한지 확인 아니면 종료
-// 	while (timer_elapsed(start) < ticks) // 아직 시작할 틱이 아니면 무한 루프
-// 		thread_yield();					 // 현재 실행중인 스레드를 스케쥴러의 제일 뒤로 이동시킨다(우선순위가 높으면 알아서 앞으로 옴)
-// }
+	/* 인터럽트 핸들러 종료 후 yield 예약 */
+	if (need_yield)
+		intr_yield_on_return();
+}
 
 /* Suspends execution for approximately MS milliseconds. */
 void timer_msleep(int64_t ms)
@@ -201,7 +176,7 @@ static void
 timer_interrupt(struct intr_frame *args UNUSED)
 {
 	ticks++;
-	check_wakeup();//추가
+	check_wakeup(); // 추가
 	thread_tick();
 }
 
