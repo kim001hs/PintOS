@@ -95,6 +95,8 @@ struct thread {
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 
+	//새로 추가
+	int64_t wakeup_tick;//일어날 시간
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
@@ -143,4 +145,7 @@ int thread_get_load_avg (void);
 
 void do_iret (struct intr_frame *tf);
 
+//추가
+bool wakeup_tick_less(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
+bool priority_greater(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
 #endif /* threads/thread.h */

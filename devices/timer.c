@@ -7,7 +7,6 @@
 #include "threads/io.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
-// #include "timer.h"
 
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -30,6 +29,11 @@ static bool too_many_loops(unsigned loops);
 static void busy_wait(int64_t loops);
 static void real_time_sleep(int64_t num, int32_t denom);
 
+// 추가한 함수 및 변수
+static struct list sleep_list;
+static void insert_sleeping_list(int64_t wake_up_time);
+static void check_wakeup();
+
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
 	interrupt PIT_FREQ times per second, and registers the
    corresponding interrupt. */
@@ -44,6 +48,7 @@ void timer_init(void)
 	outb(0x40, count >> 8);
 
 	intr_register_ext(0x20, timer_interrupt, "8254 Timer");
+	list_init(&sleep_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -56,7 +61,12 @@ void timer_calibrate(void)
 
 	/* Approximate loops_per_tick as the largest power-of-two
 	   still less than one timer tick. */
-	NewFunction();
+	loops_per_tick = 1u << 10;
+	while (!too_many_loops(loops_per_tick << 1))
+	{
+		loops_per_tick <<= 1;
+		ASSERT(loops_per_tick != 0);
+	}
 
 	/* Refine the next 8 bits of loops_per_tick. */
 	high_bit = loops_per_tick;
@@ -67,15 +77,7 @@ void timer_calibrate(void)
 	printf("%'" PRIu64 " loops/s.\n", (uint64_t)loops_per_tick * TIMER_FREQ);
 }
 
-void NewFunction()
-{
-	loops_per_tick = 1u << 10;
-	while (!too_many_loops(loops_per_tick << 1))
-	{
-		loops_per_tick <<= 1;
-		ASSERT(loops_per_tick != 0);
-	}
-} /* Returns the number of timer ticks since the OS booted. */
+/* Returns the number of timer ticks since the OS booted. */
 int64_t
 timer_ticks(void)
 {
@@ -86,6 +88,7 @@ timer_ticks(void)
 	return t;
 }
 
+// sleep한 지 얼마나 지났는지 반환할 때 사용
 /* Returns the number of timer ticks elapsed since THEN, which
    should be a value once returned by timer_ticks(). */
 int64_t
@@ -94,14 +97,54 @@ timer_elapsed(int64_t then)
 	return timer_ticks() - then;
 }
 
-/* Suspends execution for approximately TICKS timer ticks. */
+//ticks만큼 재우는 함수
 void timer_sleep(int64_t ticks)
 {
-	int64_t start = timer_ticks();
+	int64_t start = timer_ticks();		  // 함수를 호출한 시점의 시간틱
+	int64_t wake_up_time = start + ticks; // 깨어날 절대 시간틱
+	ASSERT(intr_get_level() == INTR_ON);  // 인터럽트 가능한지 확인 아니면 종료
 
-	ASSERT(intr_get_level() == INTR_ON);
-	while (timer_elapsed(start) < ticks)
-		thread_yield();
+	enum intr_level old_level = intr_disable();
+	struct thread *cur = thread_current();
+	cur->wakeup_tick = wake_up_time;
+	list_insert_ordered(&sleep_list, &cur->elem, wakeup_tick_less, NULL);
+	thread_block(); // 현재 실행중인 스레드 블락
+	// insert_sleeping_list(wake_up_time);	  // sleeping_list에 삽입
+	intr_set_level(old_level);
+}
+
+// 현재 실행중인 스레드> 구조체에 있는 status를 THREAD_BLOCKED로 바꾸고 리스트에 오름차순으로 삽입
+static void insert_sleeping_list(int64_t wake_up_time)
+{
+	struct thread *cur = thread_current();
+	cur->wakeup_tick = wake_up_time;
+	// 오름차순 삽입
+	list_insert_ordered(&sleep_list, &cur->elem, wakeup_tick_less, NULL);
+	thread_block(); // 현재 실행중인 스레드 블락
+}
+
+// 매 틱마다? 가장 앞에 있는 스레드의 wakeup_tick을 확인하고 맞으면 깨워줌
+static void check_wakeup(void)
+{
+	int64_t now = timer_ticks();
+	bool need_yield = false;
+
+	while (!list_empty(&sleep_list))
+	{
+		struct thread *head = list_entry(list_front(&sleep_list), struct thread, elem);
+		if (now < head->wakeup_tick)
+			break;
+
+		list_pop_front(&sleep_list);
+		thread_unblock(head);
+
+		if (head->priority > thread_current()->priority)
+			need_yield = true;
+	}
+
+	/* 인터럽트 핸들러 종료 후 yield 예약 */
+	if (need_yield)
+		intr_yield_on_return();
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -133,6 +176,7 @@ static void
 timer_interrupt(struct intr_frame *args UNUSED)
 {
 	ticks++;
+	check_wakeup(); // 추가
 	thread_tick();
 }
 

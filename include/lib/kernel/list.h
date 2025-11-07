@@ -95,11 +95,16 @@ struct list {
 	struct list_elem tail;      /* List tail. */
 };
 
-/* Converts pointer to list element LIST_ELEM into a pointer to
-   the structure that LIST_ELEM is embedded inside.  Supply the
-   name of the outer structure STRUCT and the member name MEMBER
-   of the list element.  See the big comment at the top of the
-   file for an example. */
+/*  Converts pointer to list element LIST_ELEM into a pointer to
+    the structure that LIST_ELEM is embedded inside.  Supply the
+    name of the outer structure STRUCT and the member name MEMBER
+    of the list element.  See the big comment at the top of the
+    file for an example. */
+
+/*  elem의 포인터를 넣으면 그 elem을 가지고 있는 struct의 포인터를 반환
+    @param  LIST_ELEM (입력)    리스트의 요소(element)인 작은 구조체 멤버의 포인터이다. (예: struct list_elem *)
+    @param  STRUCT (매개변수)	이 LIST_ELEM을 포함하고 있는 바깥쪽 구조체의 타입이다. (예: struct thread)
+    @param  MEMBER (매개변수)   STRUCT 내에서 LIST_ELEM 멤버가 선언된 변수 이름이다. (예: elem)*/
 #define list_entry(LIST_ELEM, STRUCT, MEMBER)           \
 	((STRUCT *) ((uint8_t *) &(LIST_ELEM)->next     \
 		- offsetof (STRUCT, MEMBER.next)))
@@ -119,7 +124,7 @@ struct list_elem *list_head (struct list *);
 struct list_elem *list_tail (struct list *);
 
 /* List insertion. */
-void list_insert (struct list_elem *, struct list_elem *);
+void list_insert (struct list_elem *before, struct list_elem *elem);
 void list_splice (struct list_elem *before,
 		struct list_elem *first, struct list_elem *last);
 void list_push_front (struct list *, struct list_elem *);
