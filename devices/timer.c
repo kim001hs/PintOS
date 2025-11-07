@@ -113,21 +113,10 @@ void timer_sleep(int64_t ticks)
 	intr_set_level(old_level);
 }
 
-// 현재 실행중인 스레드> 구조체에 있는 status를 THREAD_BLOCKED로 바꾸고 리스트에 오름차순으로 삽입
-static void insert_sleeping_list(int64_t wake_up_time)
-{
-	struct thread *cur = thread_current();
-	cur->wakeup_tick = wake_up_time;
-	// 오름차순 삽입
-	list_insert_ordered(&sleep_list, &cur->elem, wakeup_tick_less, NULL);
-	thread_block(); // 현재 실행중인 스레드 블락
-}
-
 // 매 틱마다? 가장 앞에 있는 스레드의 wakeup_tick을 확인하고 맞으면 깨워줌
 static void check_wakeup(void)
 {
 	int64_t now = timer_ticks();
-	bool need_yield = false;
 
 	while (!list_empty(&sleep_list))
 	{
@@ -137,14 +126,9 @@ static void check_wakeup(void)
 
 		list_pop_front(&sleep_list);
 		thread_unblock(head);
-
-		if (head->priority > thread_current()->priority)
-			need_yield = true;
 	}
 
-	/* 인터럽트 핸들러 종료 후 yield 예약 */
-	if (need_yield)
-		intr_yield_on_return();
+	intr_yield_on_return();//우선순위 높은게 unlock되면 스레드 변경
 }
 
 /* Suspends execution for approximately MS milliseconds. */
