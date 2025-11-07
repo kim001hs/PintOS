@@ -203,12 +203,9 @@ tid_t thread_create(const char *name, int priority,
 
 	/* Add to run queue. */
 	thread_unblock(t);
-	if (!list_empty(&ready_list))
+	if (thread_current()->priority < t->priority)
 	{
-		if (thread_current()->priority < t->priority)
-		{
-			thread_yield();
-		}
+		thread_yield();
 	}
 	return tid;
 }
