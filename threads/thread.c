@@ -15,9 +15,9 @@
 #include "userprog/process.h"
 #endif
 
-/* Random value for struct thread's `magic' member.
-   Used to detect stack overflow.  See the big comment at the top
-   of thread.h for details. */
+/* 	Random value for struct thread's `magic' member.
+	Used to detect stack overflow.  See the big comment at the top
+	of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
 
 /* Random value for basic thread
@@ -49,9 +49,9 @@ static long long user_ticks;   /* # of timer ticks in user programs. */
 #define TIME_SLICE 4		  /* # of timer ticks to give each thread. */
 static unsigned thread_ticks; /* # of timer ticks since last yield. */
 
-/* If false (default), use round-robin scheduler.
-   If true, use multi-level feedback queue scheduler.
-   Controlled by kernel command-line option "-o mlfqs". */
+/* 	If false (default), use round-robin scheduler.
+	If true, use multi-level feedback queue scheduler.
+	Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
 
 static void kernel_thread(thread_func *, void *aux);
@@ -78,19 +78,19 @@ static tid_t allocate_tid(void);
 // setup temporal gdt first.
 static uint64_t gdt[3] = {0, 0x00af9a000000ffff, 0x00cf92000000ffff};
 
-/* Initializes the threading system by transforming the code
-   that's currently running into a thread.  This can't work in
-   general and it is possible in this case only because loader.S
-   was careful to put the bottom of the stack at a page boundary.
+/* 	Initializes the threading system by transforming the code
+	that's currently running into a thread.  This can't work in
+	general and it is possible in this case only because loader.S
+	was careful to put the bottom of the stack at a page boundary.
 
-   Also initializes the run queue and the tid lock.
+	Also initializes the run queue and the tid lock.
 
-   After calling this function, be sure to initialize the page
-   allocator before trying to create any threads with
-   thread_create().
+	After calling this function, be sure to initialize the page
+	allocator before trying to create any threads with
+	thread_create().
 
-   It is not safe to call thread_current() until this function
-   finishes. */
+	It is not safe to call thread_current() until this function
+	finishes. */
 void thread_init(void)
 {
 	ASSERT(intr_get_level() == INTR_OFF);
@@ -155,25 +155,24 @@ void thread_tick(void)
 /* Prints thread statistics. */
 void thread_print_stats(void)
 {
-	printf("Thread: %lld idle ticks, %lld kernel ticks, %lld user ticks\n",
-		   idle_ticks, kernel_ticks, user_ticks);
+	printf("Thread: %lld idle ticks, %lld kernel ticks, %lld user ticks\n", idle_ticks, kernel_ticks, user_ticks);
 }
 
-/* Creates a new kernel thread named NAME with the given initial
-   PRIORITY, which executes FUNCTION passing AUX as the argument,
-   and adds it to the ready queue.  Returns the thread identifier
-   for the new thread, or TID_ERROR if creation fails.
+/* 	Creates a new kernel thread named NAME with the given initial
+	PRIORITY, which executes FUNCTION passing AUX as the argument,
+	and adds it to the ready queue.  Returns the thread identifier
+	for the new thread, or TID_ERROR if creation fails.
 
-   If thread_start() has been called, then the new thread may be
-   scheduled before thread_create() returns.  It could even exit
-   before thread_create() returns.  Contrariwise, the original
-   thread may run for any amount of time before the new thread is
-   scheduled.  Use a semaphore or some other form of
-   synchronization if you need to ensure ordering.
+	If thread_start() has been called, then the new thread may be
+	scheduled before thread_create() returns.  It could even exit
+	before thread_create() returns.  Contrariwise, the original
+	thread may run for any amount of time before the new thread is
+	scheduled.  Use a semaphore or some other form of
+	synchronization if you need to ensure ordering.
 
-   The code provided sets the new thread's `priority' member to
-   PRIORITY, but no actual priority scheduling is implemented.
-   Priority scheduling is the goal of Problem 1-3. */
+	The code provided sets the new thread's `priority' member to
+	PRIORITY, but no actual priority scheduling is implemented.
+	Priority scheduling is the goal of Problem 1-3. */
 tid_t thread_create(const char *name, int priority,
 					thread_func *function, void *aux)
 {
@@ -204,16 +203,22 @@ tid_t thread_create(const char *name, int priority,
 
 	/* Add to run queue. */
 	thread_unblock(t);
-
+	if (!list_empty(&ready_list))
+	{
+		if (thread_current()->priority < t->priority)
+		{
+			thread_yield();
+		}
+	}
 	return tid;
 }
 
-/* Puts the current thread to sleep.  It will not be scheduled
-   again until awoken by thread_unblock().
+/* 	Puts the current thread to sleep.  It will not be scheduled
+	again until awoken by thread_unblock().
 
-   This function must be called with interrupts turned off.  It
-   is usually a better idea to use one of the synchronization
-   primitives in synch.h. */
+	This function must be called with interrupts turned off.  It
+	is usually a better idea to use one of the synchronization
+	primitives in synch.h. */
 void thread_block(void)
 {
 	ASSERT(!intr_context());
@@ -222,14 +227,14 @@ void thread_block(void)
 	schedule();
 }
 
-/* Transitions a blocked thread T to the ready-to-run state.
-   This is an error if T is not blocked.  (Use thread_yield() to
-   make the running thread ready.)
+/* 	Transitions a blocked thread T to the ready-to-run state.
+	This is an error if T is not blocked.  (Use thread_yield() to
+	make the running thread ready.)
 
-   This function does not preempt the running thread.  This can
-   be important: if the caller had disabled interrupts itself,
-   it may expect that it can atomically unblock a thread and
-   update other data. */
+	This function does not preempt the running thread.  This can
+	be important: if the caller had disabled interrupts itself,
+	it may expect that it can atomically unblock a thread and
+	update other data. */
 void thread_unblock(struct thread *t)
 {
 	enum intr_level old_level;
@@ -250,19 +255,19 @@ thread_name(void)
 	return thread_current()->name;
 }
 
-/* Returns the running thread.
-   This is running_thread() plus a couple of sanity checks.
-   See the big comment at the top of thread.h for details. */
+/* 	Returns the running thread.
+	This is running_thread() plus a couple of sanity checks.
+	See the big comment at the top of thread.h for details. */
 struct thread *
 thread_current(void)
 {
 	struct thread *t = running_thread();
 
-	/* Make sure T is really a thread.
-	   If either of these assertions fire, then your thread may
-	   have overflowed its stack.  Each thread has less than 4 kB
-	   of stack, so a few big automatic arrays or moderate
-	   recursion can cause stack overflow. */
+	/* 	Make sure T is really a thread.
+		If either of these assertions fire, then your thread may
+		have overflowed its stack.  Each thread has less than 4 kB
+		of stack, so a few big automatic arrays or moderate
+		recursion can cause stack overflow. */
 	ASSERT(is_thread(t));
 	ASSERT(t->status == THREAD_RUNNING);
 
@@ -313,8 +318,14 @@ void thread_yield(void)
 void thread_set_priority(int new_priority)
 {
 	thread_current()->priority = new_priority;
-	int64_t next_priority = list_entry(thread_current()->elem.next, struct thread, elem)->priority;
-	thread_yield();
+	if (!list_empty(&ready_list))
+	{
+		int64_t head_priority = list_entry(ready_list.head.next, struct thread, elem)->priority;
+		if (head_priority > new_priority)
+		{
+			thread_yield();
+		}
+	}
 }
 
 /* Returns the current thread's priority. */
