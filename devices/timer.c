@@ -97,7 +97,7 @@ timer_elapsed(int64_t then)
 	return timer_ticks() - then;
 }
 
-//ticks만큼 재우는 함수
+// ticks만큼 재우는 함수
 void timer_sleep(int64_t ticks)
 {
 	int64_t start = timer_ticks();		  // 함수를 호출한 시점의 시간틱
@@ -138,13 +138,13 @@ static void check_wakeup(void)
 		list_pop_front(&sleep_list);
 		thread_unblock(head);
 
-		if (head->priority > thread_current()->priority)
-			need_yield = true;
+		// if (head->priority > thread_current()->priority)
+		// 	need_yield = true;
 	}
 
 	/* 인터럽트 핸들러 종료 후 yield 예약 */
-	if (need_yield)
-		intr_yield_on_return();
+	// if (need_yield)
+	intr_yield_on_return();
 }
 
 /* Suspends execution for approximately MS milliseconds. */
