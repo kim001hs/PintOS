@@ -41,7 +41,12 @@ void cond_wait(struct condition *, struct lock *);
 void cond_signal(struct condition *, struct lock *);
 void cond_broadcast(struct condition *, struct lock *);
 
+// 추가
 bool priority_lesser_sema(const struct list_elem *a, const struct list_elem *b, void *aux);
+extern struct thread *holder; // 현재 쓰래드 락의 주인
+void donate_priority(struct thread *donor, struct thread *holder);
+void remove_with_lock(struct lock *lock);
+void refresh_priority();
 
 /* Optimization barrier.
  *

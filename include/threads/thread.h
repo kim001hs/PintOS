@@ -98,6 +98,13 @@ struct thread
 
 	// 새로 추가
 	int64_t wakeup_tick; // 일어날 시간
+
+	// donation용 추가
+	int base_priority;				// 원본 priority
+	struct list donations;			// priority 기부 받은 다른 쓰레드 모음
+	struct lock *wait_on_lock;		// 현재 연결되어 있는 락 (NULL 가능)
+	struct list_elem donation_elem; // donation_list 순회용 변수
+
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4; /* Page map level 4 */
