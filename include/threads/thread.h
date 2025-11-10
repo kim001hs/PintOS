@@ -99,19 +99,23 @@ typedef int tid_t;
 struct thread
 {
 	/* Owned by thread.c. */
-	tid_t tid;				   /* Thread identifier. */
-	enum thread_status status; /* Thread state. */
-	char name[16];			   /* Name (for debugging purposes). */
-	int priority;			   /* current Priority. */
+	tid_t tid;				   /* 스레드 식별자(Thread ID) */
+	enum thread_status status; /* 스레드 상태(RUNNING, READY, BLOCKED 등) */
+	char name[16];			   /* 스레드 이름(디버깅 용도) */
+	int priority;			   /* 현재 스레드 우선순위 */
 
-	/* Shared between thread.c and synch.c. */
-	struct list_elem elem; /* List element. sleeping_list, ready_list, waiter_list에 속할 수 있음*/
+	/* thread.c와 synch.c에서 공유되는 요소 */
+	struct list_elem elem;	   /* 리스트 요소.
+								   sleeping_list, ready_list, waiter_list 등 여러 리스트에 속할 수 있음 */
+	struct list_elem all_elem; /* 모든 스레드가 포함된 all_list의 리스트 요소 */
 
-	// 새로 추가
-	int64_t wakeup_tick;	// 일어날 시간
-	int original_priority;	// 이 스레드의 기존 우선순위(기부받기 전)
-	struct list locks_hold; // 스레드가 가지고 있는 락의 리스트 정렬없음
-	struct lock *waiting_lock;
+	/* 새로 추가된 필드 */
+	int64_t wakeup_tick;	   /* 스레드가 깨어날 시점(틱 단위) */
+	int original_priority;	   /* 우선순위 기부 전 원래 스레드 우선순위 */
+	struct list locks_hold;	   /* 스레드가 보유한 락들의 리스트(순서 없음) */
+	struct lock *waiting_lock; /* 현재 스레드가 기다리고 있는 락 */
+	int nice;				   /* 나이스 값(스케줄링에서 사용) */
+	int recent_cpu;			   /* 최근 CPU 사용량(스케줄링 계산용) */
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4; /* Page map level 4 */
@@ -160,7 +164,13 @@ int thread_get_load_avg(void);
 
 void do_iret(struct intr_frame *tf);
 
-// 추가
+// 추가한 함수들
+void preempt_priority(void);
 bool priority_greater(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
 void sort_readylist(void);
+void update_load_avg(void);
+void cal_priority(struct thread *t);
+void update_recent_cpu_all(void);
+void update_priority_all(void);
+void mlfqs_on_tick(void);
 #endif /* threads/thread.h */

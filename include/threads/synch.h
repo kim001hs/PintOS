@@ -23,7 +23,7 @@ struct lock
 {
 	struct thread *holder;		/* Thread holding lock (for debugging). */
 	struct semaphore semaphore; /* Binary semaphore controlling access. */
-	struct list_elem lock_elem; // 홀더 스레드에 들어가는 리스트의 요소
+	struct list_elem lock_elem; // 스레드 구조체(홀더 스레드)에 들어가는 리스트의 elem
 };
 
 void lock_init(struct lock *);
@@ -43,7 +43,7 @@ void cond_wait(struct condition *, struct lock *);
 void cond_signal(struct condition *, struct lock *);
 void cond_broadcast(struct condition *, struct lock *);
 
-// 추가
+// 추가한 함수들
 bool cond_priority_lesser(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
 bool lock_priority_lesser(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
 void donate_priority(struct thread *holder, int donate_priority);

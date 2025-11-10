@@ -88,7 +88,6 @@ timer_ticks(void)
 	return t;
 }
 
-// sleep한 지 얼마나 지났는지 반환할 때 사용
 /* Returns the number of timer ticks elapsed since THEN, which
    should be a value once returned by timer_ticks(). */
 int64_t
@@ -105,7 +104,6 @@ void timer_sleep(int64_t ticks)
 	ASSERT(intr_get_level() == INTR_ON);
 
 	enum intr_level old_level = intr_disable();
-	// sleeping_list에 삽입후 block
 	struct thread *cur = thread_current();
 	cur->wakeup_tick = wake_up_time;
 	list_insert_ordered(&sleep_list, &cur->elem, wakeup_tick_less, NULL);
@@ -160,8 +158,11 @@ static void
 timer_interrupt(struct intr_frame *args UNUSED)
 {
 	ticks++;
-	check_wakeup(); // 추가
+	check_wakeup();
 	thread_tick();
+	if (thread_mlfqs){
+		mlfqs_on_tick();
+	}
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
@@ -229,9 +230,7 @@ real_time_sleep(int64_t num, int32_t denom)
 	}
 }
 
-// 추가
-/* Returns true if value A is less than value B, false
-   otherwise. */
+/* Returns true if value A is less than value B, false otherwise. */
 static bool wakeup_tick_less(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED)
 {
 	const struct thread *a = list_entry(a_, struct thread, elem);

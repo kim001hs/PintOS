@@ -120,10 +120,7 @@ void sema_up(struct semaphore *sema)
 	sema->value++;
 	intr_set_level(old_level);
 
-	if (t != NULL && thread_current()->priority < t->priority)
-	{
-		thread_yield();
-	}
+	preempt_priority();
 }
 
 static void sema_test_helper(void *sema_);
@@ -425,11 +422,7 @@ void donate_priority(struct thread *holder, int priority_to_donate)
 	case THREAD_READY:
 		// 레디 스레드에 속해있으면 재정렬
 		sort_readylist();
-		// holder가 실행중인 스레드보다 우선순위가 높아지면 yield
-		if (priority_to_donate > thread_current()->priority)
-		{
-			thread_yield();
-		}
+		preempt_priority();
 		break;
 
 	case THREAD_BLOCKED:
