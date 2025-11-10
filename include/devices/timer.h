@@ -10,7 +10,7 @@
 void timer_init (void);
 void timer_calibrate (void);
 
-void NewFunction();
+void NewFunction(void);
 
 int64_t timer_ticks (void);
 int64_t timer_elapsed (int64_t);

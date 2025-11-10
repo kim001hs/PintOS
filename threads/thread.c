@@ -311,10 +311,23 @@ void thread_yield(void)
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
-// 현재 스레드의 우선순위를 new_priority로 설정
+// 현재 스레드의 우선순위와 original우선순위를 new_priority로 설정
 void thread_set_priority(int new_priority)
 {
-	thread_current()->priority = new_priority;
+	struct thread *cur = thread_current();
+	cur->original_priority = new_priority;
+	if (list_empty(&cur->locks_hold) && cur->waiting_lock == NULL)
+	{
+		cur->priority = new_priority;
+	}
+	else
+	{
+		// 이미 기부받은 상태인데 new_priority가 더 높으면 갱신
+		if (new_priority > cur->priority)
+		{
+			cur->priority = new_priority;
+		}
+	}
 	if (!list_empty(&ready_list))
 	{
 		int64_t head_priority = list_entry(ready_list.head.next, struct thread, elem)->priority;
@@ -422,7 +435,11 @@ init_thread(struct thread *t, const char *name, int priority)
 	strlcpy(t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t)t + PGSIZE - sizeof(void *);
 	t->priority = priority;
+	t->original_priority = priority; // 추가
+	t->wakeup_tick = 0;				 // 추가
 	t->magic = THREAD_MAGIC;
+	list_init(&t->locks_hold);
+	t->waiting_lock = NULL;
 }
 
 /* 	Chooses and returns the next thread to be scheduled.  Should
@@ -613,19 +630,14 @@ allocate_tid(void)
 // 추가
 /* Returns true if value A is less than value B, false
    otherwise. */
-bool wakeup_tick_less(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED)
-{
-	const struct thread *a = list_entry(a_, struct thread, elem);
-	const struct thread *b = list_entry(b_, struct thread, elem);
-	return a->wakeup_tick < b->wakeup_tick;
-}
-
-// 추가
-/* Returns true if value A is less than value B, false
-   otherwise. */
 bool priority_greater(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED)
 {
 	const struct thread *a = list_entry(a_, struct thread, elem);
 	const struct thread *b = list_entry(b_, struct thread, elem);
 	return a->priority > b->priority;
+}
+
+void sort_readylist()
+{
+	list_sort(&ready_list, priority_greater, NULL);
 }
