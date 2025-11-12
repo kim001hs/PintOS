@@ -27,6 +27,7 @@ typedef int tid_t;
 #define PRI_MIN 0	   /* Lowest priority. */
 #define PRI_DEFAULT 31 /* Default priority. */
 #define PRI_MAX 63	   /* Highest priority. */
+typedef int fixed_t;
 
 /* A kernel thread or user process.
  *
@@ -105,6 +106,11 @@ struct thread
 	struct lock *wait_on_lock;		// 현재 연결되어 있는 락 (NULL 가능)
 	struct list_elem donation_elem; // donation_list 순회용 변수
 
+	// 4.4BSD Scheduler
+	int nice;
+	fixed_t recent_cpu;
+	struct list_elem allelem;
+
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4; /* Page map level 4 */
@@ -157,5 +163,13 @@ void do_iret(struct intr_frame *tf);
 bool wakeup_tick_less(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
 bool priority_greater(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
 bool priority_lesser(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
+// 4.4BSD scheduler
+void calculate_priority_mlfqs(struct thread *t);
+void calculate_recent_cpu_mlfqs(struct thread *t);
+void calculate_load_avg_mlfqs();
+void increase_recent_cpu_by_one_mlfqs();
+void recalculate_all_load_avg_recent_cpu_mlfqs();
+void recalculate_all_priority_mlfqs();
+extern struct list all_list;
 
 #endif /* threads/thread.h */

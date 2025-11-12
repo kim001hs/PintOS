@@ -124,8 +124,13 @@ void sema_up(struct semaphore *sema)
 	sema->value++;
 	intr_set_level(old_level);
 
-	if (t != NULL && t->priority > thread_current()->priority)
-		thread_yield();
+	if (t && t->priority > thread_current()->priority)
+	{
+		if (intr_context())
+			intr_yield_on_return();
+		else
+			thread_yield();
+	}
 }
 
 static void sema_test_helper(void *sema_);
@@ -211,7 +216,7 @@ void lock_acquire(struct lock *lock)
 	// - 현재 락 주인보다 우선순위가 높으면
 	// -- 락 주인한테 우선순위 기부
 	// -- 락 주인이 다른 락 주인한테 연결되어 있으면, 재귀로 기부
-	if (lock->holder != NULL)
+	if (!thread_mlfqs && lock->holder != NULL)
 	{
 		curr->wait_on_lock = lock;
 		// 현재 쓰레드에서 락 주인한테 우선순위 기부 (가능하면)
@@ -264,8 +269,11 @@ void lock_release(struct lock *lock)
 	ASSERT(lock != NULL);
 	ASSERT(lock_held_by_current_thread(lock));
 
-	remove_with_lock(lock); // 이 lock에 연관된 donor 스레드들 삭제
-	refresh_priority();		// 현재 스레드의 우선순위 변경
+	if (!thread_mlfqs)
+	{
+		remove_with_lock(lock); // 이 lock에 연관된 donor 스레드들 삭제
+		refresh_priority();		// 현재 스레드의 우선순위 변경
+	}
 
 	lock->holder = NULL;
 	sema_up(&lock->semaphore);

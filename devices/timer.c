@@ -100,16 +100,14 @@ timer_elapsed(int64_t then)
 // ticks만큼 재우는 함수
 void timer_sleep(int64_t ticks)
 {
-	int64_t start = timer_ticks();		  // 함수를 호출한 시점의 시간틱
-	int64_t wake_up_time = start + ticks; // 깨어날 절대 시간틱
-	ASSERT(intr_get_level() == INTR_ON);  // 인터럽트 가능한지 확인 아니면 종료
+
+	ASSERT(intr_get_level() == INTR_ON); // 인터럽트 가능한지 확인 아니면 종료
 
 	enum intr_level old_level = intr_disable();
 	struct thread *cur = thread_current();
-	cur->wakeup_tick = wake_up_time;
+	cur->wakeup_tick = timer_ticks() + ticks;
 	list_insert_ordered(&sleep_list, &cur->elem, wakeup_tick_less, NULL);
 	thread_block(); // 현재 실행중인 스레드 블락
-	// insert_sleeping_list(wake_up_time);	  // sleeping_list에 삽입
 	intr_set_level(old_level);
 }
 
@@ -137,14 +135,11 @@ static void check_wakeup(void)
 
 		list_pop_front(&sleep_list);
 		thread_unblock(head);
-
-		// if (head->priority > thread_current()->priority)
-		// 	need_yield = true;
+		need_yield = true;
 	}
 
-	/* 인터럽트 핸들러 종료 후 yield 예약 */
-	// if (need_yield)
-	intr_yield_on_return();
+	if (need_yield)
+		intr_yield_on_return();
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -176,8 +171,21 @@ static void
 timer_interrupt(struct intr_frame *args UNUSED)
 {
 	ticks++;
-	check_wakeup(); // 추가
 	thread_tick();
+	check_wakeup();
+	if (thread_mlfqs)
+	{
+		// increase the recent_cpu of the currently running process by 1 in every time interrupt
+		increase_recent_cpu_by_one_mlfqs();
+
+		// recalculate load_avg, recent_cpu of all threads, priority every 1 sec.
+		if (ticks % TIMER_FREQ == 0)
+			recalculate_all_load_avg_recent_cpu_mlfqs();
+
+		// recalculate priority of all threads every 4th tick
+		if (ticks % 4 == 0)
+			recalculate_all_priority_mlfqs();
+	}
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
