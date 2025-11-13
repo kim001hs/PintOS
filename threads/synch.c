@@ -338,7 +338,7 @@ void cond_init(struct condition *cond)
 }
 
 /* Atomically releases LOCK and waits for COND to be signaled by
-   some other piece of code.  After COND is signaled, LOCK is
+   some other piece of code.  After ` is signaled, LOCK is
    reacquired before returning.  LOCK must be held before calling
    this function.
 
