@@ -379,11 +379,11 @@ bool cond_priority_lesser(const struct list_elem *a_, const struct list_elem *b_
 
 	// cond waiters가 비어있는 경우에는 가장 낮은 우선순위를 0으로 둠
 	int a_priority = list_empty(&a_sema_elem->semaphore.waiters)
-						? PRI_MIN
-						: list_entry(list_front(&a_sema_elem->semaphore.waiters), struct thread, elem)->priority;
+						 ? PRI_MIN
+						 : list_entry(list_front(&a_sema_elem->semaphore.waiters), struct thread, elem)->priority;
 	int b_priority = list_empty(&b_sema_elem->semaphore.waiters)
-						? PRI_MIN
-						: list_entry(list_front(&b_sema_elem->semaphore.waiters), struct thread, elem)->priority;
+						 ? PRI_MIN
+						 : list_entry(list_front(&b_sema_elem->semaphore.waiters), struct thread, elem)->priority;
 
 	return a_priority < b_priority;
 }
@@ -396,11 +396,11 @@ bool lock_priority_lesser(const struct list_elem *a_, const struct list_elem *b_
 
 	// 락에 대기 중인 스레드가 없으면 가장 낮은 우선순위를 0으로 둠
 	int a_priority = list_empty(&a_lock->semaphore.waiters)
-						? PRI_MIN
-						: list_entry(list_front(&a_lock->semaphore.waiters), struct thread, elem)->priority;
+						 ? PRI_MIN
+						 : list_entry(list_front(&a_lock->semaphore.waiters), struct thread, elem)->priority;
 	int b_priority = list_empty(&b_lock->semaphore.waiters)
-						? PRI_MIN
-						: list_entry(list_front(&b_lock->semaphore.waiters), struct thread, elem)->priority;
+						 ? PRI_MIN
+						 : list_entry(list_front(&b_lock->semaphore.waiters), struct thread, elem)->priority;
 
 	return a_priority < b_priority;
 }

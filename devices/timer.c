@@ -160,7 +160,8 @@ timer_interrupt(struct intr_frame *args UNUSED)
 	ticks++;
 	check_wakeup();
 	thread_tick();
-	if (thread_mlfqs){
+	if (thread_mlfqs)
+	{
 		mlfqs_on_tick();
 	}
 }
