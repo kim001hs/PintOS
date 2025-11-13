@@ -7,7 +7,6 @@
 #include "tests/lib.h"
 #include "tests/main.h"
 #include "tests/vm/large.inc"
-#include <syscall.h>
 
 #define CHUNK_SIZE (128 * 1024)
 
