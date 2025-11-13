@@ -222,6 +222,7 @@ int read(int fd, void *buffer, unsigned length)
 
 int write(int fd, const void *buffer, unsigned length)
 {
+	// start
 	// 	`fd`에 `buffer`의 `size`만큼의 데이터를 씀. 실제로 쓴 바이트 수를 반환.
 
 	// - `fd 1`이면 콘솔 출력
