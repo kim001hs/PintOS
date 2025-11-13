@@ -124,6 +124,7 @@ void syscall_handler(struct intr_frame *f UNUSED)
 
 void halt(void)
 {
+	power_off();
 }
 
 void exit(int status)
