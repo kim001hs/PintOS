@@ -534,20 +534,24 @@ init_thread(struct thread *t, const char *name, int priority)
 	strlcpy(t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t)t + PGSIZE - sizeof(void *);
 	t->priority = priority;
-	t->original_priority = priority; // 추가
-	t->wakeup_tick = 0;				 // 추가
 	t->magic = THREAD_MAGIC;
+	// threads
+	t->original_priority = priority;
+	t->wakeup_tick = 0;
 	list_init(&t->locks_hold);
 	t->waiting_lock = NULL;
-	t->nice = 0;	   // 기본 nice 값
 	if (thread_mlfqs && t != initial_thread)
-	{//초기스레드 아니면 부모 스레드의 recent_cpu값을 상속받음
+	{ // 초기스레드 아니면 부모 스레드의 recent_cpu값을 상속받음
+		t->nice = thread_current()->nice;
 		t->recent_cpu = thread_current()->recent_cpu;
 	}
 	else
 	{
+		t->nice = 0; // 기본 nice 값
 		t->recent_cpu = 0;
 	}
+	// userprog
+	t->exit_status = 0;
 	/* Add to all threads list. */
 	list_push_back(&all_list, &t->all_elem);
 }
