@@ -539,13 +539,14 @@ init_thread(struct thread *t, const char *name, int priority)
 	t->magic = THREAD_MAGIC;
 	list_init(&t->locks_hold);
 	t->waiting_lock = NULL;
-	t->nice = 0;	   // 기본 nice 값
 	if (thread_mlfqs && t != initial_thread)
-	{//초기스레드 아니면 부모 스레드의 recent_cpu값을 상속받음
+	{ // 초기스레드 아니면 부모 스레드의 recent_cpu값을 상속받음
+		t->nice = thread_current()->nice;
 		t->recent_cpu = thread_current()->recent_cpu;
 	}
 	else
 	{
+		t->nice = 0;
 		t->recent_cpu = 0;
 	}
 	/* Add to all threads list. */
