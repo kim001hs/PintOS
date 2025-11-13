@@ -129,6 +129,11 @@ void halt(void)
 
 void exit(int status)
 {
+	struct thread *cur = thread_current();
+	cur->exit_status = status; // 프로그램이 정상적으로 종료되었는지 확인(정상적 종료 시 0)
+
+	printf("%s: exit(%d)\n", thread_name(), status); // 종료 시 Process Termination Message 출력
+	thread_exit();									 // 스레드 종료
 }
 
 int fork(const char *thread_name)
