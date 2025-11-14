@@ -52,7 +52,7 @@ tid_t process_create_initd(const char *file_name)
 		return TID_ERROR;
 	strlcpy(fn_copy, file_name, PGSIZE);
 	char *save_ptr;
-	char *first = strtok_r(fn_copy, " ", &save_ptr);
+	char *first = strtok_r(file_name, " ", &save_ptr);
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create(first, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
@@ -217,8 +217,8 @@ int process_exec(void *f_name)
 // rsp에 argv를 넣어주고 argv의 시작주소를 리턴
 char *push_argument(char **argv, int argc, void **rsp_ptr)
 {
-	void *cur_rsp = *rsp_ptr; // 현재 스택 최상단 주소
-	void *argv_ptr[129];
+	intptr_t cur_rsp = (uintptr_t)*rsp_ptr; // 현재 스택 최상단 주소
+	void *argv_ptr[129];					// argv[n]을 가리키는 포인터 배열
 	for (int i = argc - 1; i >= 0; i--)
 	{
 		size_t cur_len = strlen(argv[i]) + 1;
@@ -227,7 +227,7 @@ char *push_argument(char **argv, int argc, void **rsp_ptr)
 		memcpy(cur_rsp, argv[i], cur_len);
 	}
 	argv_ptr[argc] = NULL;
-	cur_rsp = (void *)((uintptr_t)cur_rsp & ~0x7);
+	cur_rsp = cur_rsp & ~0x7;
 	for (int i = argc; i >= 0; i--)
 	{
 		cur_rsp -= sizeof(void *);
@@ -528,29 +528,6 @@ validate_segment(const struct Phdr *phdr, struct file *file)
 	return true;
 }
 
-/* 사용자 주소 UADDR의 바이트를 읽음 */
-static int64_t get_user(const uint8_t *uaddr)
-{
-	int64_t result;
-	__asm __volatile(
-		"movabsq $done_get, %0\n"
-		"movzbq %1, %0\n"
-		"done_get:\n"
-		: "=&a"(result) : "m"(*uaddr));
-	return result;
-}
-
-/* 사용자 주소 UDST에 BYTE를 씀 */
-static bool put_user(uint8_t *udst, uint8_t byte)
-{
-	int64_t error_code;
-	__asm __volatile(
-		"movabsq $done_put, %0\n"
-		"movb %b2, %1\n"
-		"done_put:\n"
-		: "=&a"(error_code), "=m"(*udst) : "q"(byte));
-	return error_code != -1;
-}
 #ifndef VM
 /* Codes of this block will be ONLY USED DURING project 2.
  * If you want to implement the function for whole project 2, implement it
