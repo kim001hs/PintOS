@@ -26,7 +26,8 @@ static void process_cleanup(void);
 static bool load(const char *file_name, struct intr_frame *if_);
 static void initd(void *f_name);
 static void __do_fork(void *);
-
+static int64_t get_user(const uint8_t *uaddr);
+static bool put_user(uint8_t *udst, uint8_t byte);
 /* General process initializer for initd and other process. */
 static void
 process_init(void)
@@ -50,9 +51,10 @@ tid_t process_create_initd(const char *file_name)
 	if (fn_copy == NULL)
 		return TID_ERROR;
 	strlcpy(fn_copy, file_name, PGSIZE);
-
+	char *save_ptr;
+	char *first = strtok_r(file_name, " ", &save_ptr);
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create(file_name, PRI_DEFAULT, initd, fn_copy);
+	tid = thread_create(first, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
 		palloc_free_page(fn_copy);
 	return tid;
@@ -181,17 +183,63 @@ int process_exec(void *f_name)
 	/* We first kill the current context */
 	process_cleanup();
 
+	// todo
+	char *argv[128]; // 인자 128개까지 받음
+	int argc = 0;
+	char *save_ptr;
+	for (char *token = strtok_r(file_name, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr))
+	{
+		if (argc >= 128)
+			break;
+		argv[argc++] = token;
+	}
+	argv[argc] = NULL;
+
 	/* And then load the binary */
 	success = load(file_name, &_if);
 
 	/* If load failed, quit. */
-	palloc_free_page(file_name);
 	if (!success)
+	{
+		palloc_free_page(file_name);
 		return -1;
+	}
 
+	_if.R.rsi = push_argument(argv, argc, &_if.rsp);
+	_if.R.rdi = argc;
+
+	palloc_free_page(file_name);
 	/* Start switched process. */
 	do_iret(&_if);
 	NOT_REACHED();
+}
+
+// rsp에 argv를 넣어주고 argv의 시작주소를 리턴
+char *push_argument(char **argv, int argc, void **rsp_ptr)
+{
+	void *cur_rsp = *rsp_ptr; // 현재 스택 최상단 주소
+	void *argv_ptr[129];
+	for (int i = argc - 1; i >= 0; i--)
+	{
+		size_t cur_len = strlen(argv[i]) + 1;
+		cur_rsp -= cur_len;
+		argv_ptr[i] = cur_rsp;
+		memcpy(cur_rsp, argv[i], cur_len);
+	}
+	argv_ptr[argc] = NULL;
+	cur_rsp = (void *)((uintptr_t)cur_rsp & ~0x7);
+	for (int i = argc; i >= 0; i--)
+	{
+		cur_rsp -= sizeof(void *);
+		*(void **)cur_rsp = argv_ptr[i];
+	}
+	char *argv_start = cur_rsp; // argv_ptr[0]의 주소 -> rsi에 저장할 주소
+	// return address(dummy) 푸시
+	cur_rsp -= sizeof(void *);
+	memset(cur_rsp, 0, sizeof(void *)); // 0으로 채워서 NULL로 만듬
+
+	*rsp_ptr = cur_rsp; // 스택 최상단(가장 낮은 주소) -> rsp에 저장할 주소
+	return (char *)argv_start;
 }
 
 /* Waits for thread TID to die and returns its exit status.  If
@@ -203,11 +251,12 @@ int process_exec(void *f_name)
  *
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
-int process_wait(tid_t child_tid UNUSED)
+int process_wait(tid_t child_tid)
 {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+	timer_sleep(100);
 	return -1;
 }
 
@@ -320,9 +369,7 @@ struct ELF64_PHDR
 
 static bool setup_stack(struct intr_frame *if_);
 static bool validate_segment(const struct Phdr *, struct file *);
-static bool load_segment(struct file *file, off_t ofs, uint8_t *upage,
-						 uint32_t read_bytes, uint32_t zero_bytes,
-						 bool writable);
+static bool load_segment(struct file *file, off_t ofs, uint8_t *upage, uint32_t read_bytes, uint32_t zero_bytes, bool writable);
 
 /* Loads an ELF executable from FILE_NAME into the current thread.
  * Stores the executable's entry point into *RIP
@@ -657,4 +704,29 @@ setup_stack(struct intr_frame *if_)
 
 	return success;
 }
+
+/* 사용자 주소 UADDR의 바이트를 읽음 */
+static int64_t get_user(const uint8_t *uaddr)
+{
+	int64_t result;
+	__asm __volatile(
+		"movabsq $done_get, %0\n"
+		"movzbq %1, %0\n"
+		"done_get:\n"
+		: "=&a"(result) : "m"(*uaddr));
+	return result;
+}
+
+/* 사용자 주소 UDST에 BYTE를 씀 */
+static bool put_user(uint8_t *udst, uint8_t byte)
+{
+	int64_t error_code;
+	__asm __volatile(
+		"movabsq $done_put, %0\n"
+		"movb %b2, %1\n"
+		"done_put:\n"
+		: "=&a"(error_code), "=m"(*udst) : "q"(byte));
+	return error_code != -1;
+}
+
 #endif /* VM */
