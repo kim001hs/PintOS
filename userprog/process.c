@@ -52,7 +52,7 @@ tid_t process_create_initd(const char *file_name)
 		return TID_ERROR;
 	strlcpy(fn_copy, file_name, PGSIZE);
 	char *save_ptr;
-	char *first = strtok_r(file_name, " ", &save_ptr);
+	char *first = strtok_r(fn_copy, " ", &save_ptr);
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create(first, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
@@ -205,7 +205,7 @@ int process_exec(void *f_name)
 		return -1;
 	}
 
-	_if.R.rsi = push_argument(argv, argc, &_if.rsp);
+	_if.R.rsi = (uint64_t)push_argument(argv, argc, &_if.rsp);
 	_if.R.rdi = argc;
 
 	palloc_free_page(file_name);
