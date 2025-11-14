@@ -241,7 +241,7 @@ static int s_write(int fd, const void *buffer, unsigned length)
 		return length;
 	}
 	// 1 아닐 때 구현 필요
-	return -1;
+	return;
 }
 
 static void s_seek(int fd, unsigned position)
