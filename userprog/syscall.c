@@ -66,7 +66,7 @@ void syscall_handler(struct intr_frame *f UNUSED)
 		s_exit(f->R.rdi);
 		break;
 	case SYS_FORK:
-		s_fork(f->R.rdi);
+		f->R.rax = s_fork(f->R.rdi);
 		break;
 	case SYS_EXEC:
 		f->R.rax = s_exec(f->R.rdi);
@@ -169,7 +169,7 @@ static int s_exec(const char *file)
 	strlcpy(fn_copy, file, PGSIZE);
 
 	int res = process_exec(fn_copy);
-	palloc_free_page(fn_copy);
+	// palloc_free_page(fn_copy); free는 process_exec안에서
 	return res;
 }
 
@@ -233,6 +233,8 @@ static int s_read(int fd, void *buffer, unsigned length)
 
 static int s_write(int fd, const void *buffer, unsigned length)
 {
+	if (buffer == NULL)
+		return;
 	if (fd == 1)
 	{
 		putbuf(buffer, length);

@@ -52,7 +52,7 @@ tid_t process_create_initd(const char *file_name)
 		return TID_ERROR;
 	strlcpy(fn_copy, file_name, PGSIZE);
 	char *save_ptr;
-	char *first = strtok_r(file_name, " ", &save_ptr);
+	char *first = strtok_r(fn_copy, " ", &save_ptr);
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create(first, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
@@ -205,7 +205,7 @@ int process_exec(void *f_name)
 		return -1;
 	}
 
-	_if.R.rsi = push_argument(argv, argc, &_if.rsp);
+	_if.R.rsi = (uint64_t)push_argument(argv, argc, &_if.rsp);
 	_if.R.rdi = argc;
 
 	palloc_free_page(file_name);
@@ -528,6 +528,29 @@ validate_segment(const struct Phdr *phdr, struct file *file)
 	return true;
 }
 
+/* 사용자 주소 UADDR의 바이트를 읽음 */
+static int64_t get_user(const uint8_t *uaddr)
+{
+	int64_t result;
+	__asm __volatile(
+		"movabsq $done_get, %0\n"
+		"movzbq %1, %0\n"
+		"done_get:\n"
+		: "=&a"(result) : "m"(*uaddr));
+	return result;
+}
+
+/* 사용자 주소 UDST에 BYTE를 씀 */
+static bool put_user(uint8_t *udst, uint8_t byte)
+{
+	int64_t error_code;
+	__asm __volatile(
+		"movabsq $done_put, %0\n"
+		"movb %b2, %1\n"
+		"done_put:\n"
+		: "=&a"(error_code), "=m"(*udst) : "q"(byte));
+	return error_code != -1;
+}
 #ifndef VM
 /* Codes of this block will be ONLY USED DURING project 2.
  * If you want to implement the function for whole project 2, implement it
@@ -703,30 +726,6 @@ setup_stack(struct intr_frame *if_)
 	/* TODO: Your code goes here */
 
 	return success;
-}
-
-/* 사용자 주소 UADDR의 바이트를 읽음 */
-static int64_t get_user(const uint8_t *uaddr)
-{
-	int64_t result;
-	__asm __volatile(
-		"movabsq $done_get, %0\n"
-		"movzbq %1, %0\n"
-		"done_get:\n"
-		: "=&a"(result) : "m"(*uaddr));
-	return result;
-}
-
-/* 사용자 주소 UDST에 BYTE를 씀 */
-static bool put_user(uint8_t *udst, uint8_t byte)
-{
-	int64_t error_code;
-	__asm __volatile(
-		"movabsq $done_put, %0\n"
-		"movb %b2, %1\n"
-		"done_put:\n"
-		: "=&a"(error_code), "=m"(*udst) : "q"(byte));
-	return error_code != -1;
 }
 
 #endif /* VM */
