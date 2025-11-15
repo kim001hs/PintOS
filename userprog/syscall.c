@@ -32,6 +32,8 @@ static void s_close(int fd);
 static void s_check_access(const char *file);
 // extra
 static int s_dup2(int oldfd, int newfd);
+
+static void s_check_access(const char *);
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
