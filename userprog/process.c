@@ -52,7 +52,7 @@ tid_t process_create_initd(const char *file_name)
 		return TID_ERROR;
 	strlcpy(fn_copy, file_name, PGSIZE);
 	char *save_ptr;
-	char *first = strtok_r(fn_copy, " ", &save_ptr);
+	char *first = strtok_r(file_name, " ", &save_ptr);
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create(first, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
@@ -184,16 +184,15 @@ int process_exec(void *f_name)
 	process_cleanup();
 
 	// todo
-	char *argv[128]; // 인자 128개까지 받음
+	char *argv[64]; // 인자 64개까지 받음
 	int argc = 0;
 	char *save_ptr;
 	for (char *token = strtok_r(file_name, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr))
 	{
-		if (argc >= 128)
+		if (argc >= 64)
 			break;
 		argv[argc++] = token;
 	}
-	argv[argc] = NULL;
 
 	/* And then load the binary */
 	success = load(file_name, &_if);
@@ -217,17 +216,17 @@ int process_exec(void *f_name)
 // rsp에 argv를 넣어주고 argv의 시작주소를 리턴
 char *push_argument(char **argv, int argc, void **rsp_ptr)
 {
-	void *cur_rsp = *rsp_ptr; // 현재 스택 최상단 주소
-	void *argv_ptr[129];
+	intptr_t cur_rsp = (uintptr_t)*rsp_ptr; // 현재 스택 최상단 주소
+	void *argv_ptr[65];						// argv[n]을 가리키는 포인터 배열
 	for (int i = argc - 1; i >= 0; i--)
 	{
 		size_t cur_len = strlen(argv[i]) + 1;
 		cur_rsp -= cur_len;
+		memcpy((void *)cur_rsp, argv[i], cur_len);
 		argv_ptr[i] = cur_rsp;
-		memcpy(cur_rsp, argv[i], cur_len);
 	}
 	argv_ptr[argc] = NULL;
-	cur_rsp = (void *)((uintptr_t)cur_rsp & ~0x7);
+	cur_rsp = cur_rsp & ~0x7;
 	for (int i = argc; i >= 0; i--)
 	{
 		cur_rsp -= sizeof(void *);
@@ -236,7 +235,7 @@ char *push_argument(char **argv, int argc, void **rsp_ptr)
 	char *argv_start = cur_rsp; // argv_ptr[0]의 주소 -> rsi에 저장할 주소
 	// return address(dummy) 푸시
 	cur_rsp -= sizeof(void *);
-	memset(cur_rsp, 0, sizeof(void *)); // 0으로 채워서 NULL로 만듬
+	memset((void *)cur_rsp, 0, sizeof(void *)); // 0으로 채워서 NULL로 만듬
 
 	*rsp_ptr = cur_rsp; // 스택 최상단(가장 낮은 주소) -> rsp에 저장할 주소
 	return (char *)argv_start;
@@ -528,29 +527,6 @@ validate_segment(const struct Phdr *phdr, struct file *file)
 	return true;
 }
 
-/* 사용자 주소 UADDR의 바이트를 읽음 */
-static int64_t get_user(const uint8_t *uaddr)
-{
-	int64_t result;
-	__asm __volatile(
-		"movabsq $done_get, %0\n"
-		"movzbq %1, %0\n"
-		"done_get:\n"
-		: "=&a"(result) : "m"(*uaddr));
-	return result;
-}
-
-/* 사용자 주소 UDST에 BYTE를 씀 */
-static bool put_user(uint8_t *udst, uint8_t byte)
-{
-	int64_t error_code;
-	__asm __volatile(
-		"movabsq $done_put, %0\n"
-		"movb %b2, %1\n"
-		"done_put:\n"
-		: "=&a"(error_code), "=m"(*udst) : "q"(byte));
-	return error_code != -1;
-}
 #ifndef VM
 /* Codes of this block will be ONLY USED DURING project 2.
  * If you want to implement the function for whole project 2, implement it

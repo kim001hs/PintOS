@@ -169,6 +169,8 @@ static int s_fork(const char *thread_name)
 
 static int s_exec(const char *file)
 {
+	s_check_access(file);
+
 	char *fn_copy = palloc_get_page(0);
 	if (fn_copy == NULL)
 		return -1;
