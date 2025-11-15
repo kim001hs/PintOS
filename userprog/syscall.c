@@ -28,6 +28,8 @@ static int s_write(int fd, const void *buffer, unsigned length);
 static void s_seek(int fd, unsigned position);
 static unsigned s_tell(int fd);
 static void s_close(int fd);
+
+static void s_check_access(const char *file);
 // extra
 static int s_dup2(int oldfd, int newfd);
 /* System call.
@@ -202,10 +204,9 @@ static int s_wait(int tid)
 
 static bool s_create(const char *file, unsigned initial_size)
 {
-	// 	크기 `initial_size`의 새 파일을 생성합니다. 성공 시 `true`, 실패 시 `false` 반환.
+	s_check_access(file);
 
-	// > 생성은 열기와 다릅니다. 열려면 open() 호출 필요.
-	// process_create_initd(file);
+	return filesys_create(file, initial_size);
 }
 
 static bool s_remove(const char *file)
@@ -306,4 +307,12 @@ static int s_dup2(int oldfd, int newfd)
 	// - 복제된 디스크립터는 **파일 오프셋과 상태 플래그를 공유**합니다.
 	// 	- 예: `seek()`으로 하나의 파일 위치를 바꾸면, 다른 디스크립터도 같은 위치를 가리킵니다.
 	// - **`fork()` 이후에도 dup된 fd의 의미는 유지되어야 합니다.**
+}
+
+static void s_check_access(const char *file)
+{
+	if (file == NULL || !is_user_vaddr(file) || pml4_get_page(thread_current()->pml4, file) == NULL || file[0] == 0)
+	{
+		s_exit(-1);
+	}
 }
