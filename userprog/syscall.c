@@ -251,6 +251,7 @@ static int s_open(const char *file)
         return -1;
     }
     return fd;
+    // LF 사용.
 }
 
 static int s_filesize(int fd)
