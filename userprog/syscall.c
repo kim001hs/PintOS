@@ -233,6 +233,7 @@ static int s_read(int fd, void *buffer, unsigned length)
 
 static int s_write(int fd, const void *buffer, unsigned length)
 {
+	// test
 	if (buffer == NULL)
 		return;
 	if (fd == 1)
