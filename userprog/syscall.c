@@ -223,11 +223,6 @@ static int s_open(const char *file)
 	s_check_access(file);
 	int fd = -1;
 
-	if (file == NULL)
-	{
-		return -1;
-	}
-
 	lock_acquire(&filesys_lock);
 	struct file *target_file = filesys_open(file);
 	lock_release(&filesys_lock);
