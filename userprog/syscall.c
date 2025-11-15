@@ -218,6 +218,7 @@ static bool s_remove(const char *file)
 
 static int s_open(const char *file)
 {
+	s_check_access(file);
 	int fd = -1;
 
 	if (file == NULL)
@@ -313,7 +314,7 @@ static int s_dup2(int oldfd, int newfd)
 
 static void s_check_access(const char *file)
 {
-	if (file == NULL || !is_user_vaddr(file) || pml4_get_page(thread_current()->pml4, file) == NULL || file[0] == 0)
+	if (file == NULL || !is_user_vaddr(file) || pml4_get_page(thread_current()->pml4, file) == NULL)
 	{
 		s_exit(-1);
 	}
