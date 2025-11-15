@@ -12,10 +12,10 @@
 /* States in a thread's life cycle. */
 enum thread_status
 {
-	THREAD_RUNNING, /* Running thread. */
-	THREAD_READY,	/* Not running but ready to run. */
-	THREAD_BLOCKED, /* Waiting for an event to trigger. */
-	THREAD_DYING	/* About to be destroyed. */
+    THREAD_RUNNING, /* Running thread. */
+    THREAD_READY,   /* Not running but ready to run. */
+    THREAD_BLOCKED, /* Waiting for an event to trigger. */
+    THREAD_DYING    /* About to be destroyed. */
 };
 
 /* Thread identifier type.
@@ -24,9 +24,9 @@ typedef int tid_t;
 #define TID_ERROR ((tid_t) - 1) /* Error value for tid_t. */
 
 /* Thread priorities. */
-#define PRI_MIN 0	   /* Lowest priority. */
+#define PRI_MIN 0      /* Lowest priority. */
 #define PRI_DEFAULT 31 /* Default priority. */
-#define PRI_MAX 63	   /* Highest priority. */
+#define PRI_MAX 63     /* Highest priority. */
 
 /* A kernel thread or user process.
  *
@@ -98,43 +98,45 @@ typedef int tid_t;
  */
 struct thread
 {
-	/* Owned by thread.c. */
-	tid_t tid;				   /* 스레드 식별자(Thread ID) */
-	enum thread_status status; /* 스레드 상태(RUNNING, READY, BLOCKED 등) */
-	char name[16];			   /* 스레드 이름(디버깅 용도) */
-	int priority;			   /* 현재 스레드 우선순위 */
+    /* Owned by thread.c. */
+    tid_t tid;                 /* 스레드 식별자(Thread ID) */
+    enum thread_status status; /* 스레드 상태(RUNNING, READY, BLOCKED 등) */
+    char name[16];             /* 스레드 이름(디버깅 용도) */
+    int priority;              /* 현재 스레드 우선순위 */
 
-	/* thread.c와 synch.c에서 공유되는 요소 */
-	struct list_elem elem;	   /* 리스트 요소.
-								   sleeping_list, ready_list, waiter_list 등 여러 리스트에 속할 수 있음 */
-	struct list_elem all_elem; /* 모든 스레드가 포함된 all_list의 리스트 요소 */
+    /* thread.c와 synch.c에서 공유되는 요소 */
+    struct list_elem elem;     /* 리스트 요소.
+                                   sleeping_list, ready_list, waiter_list 등 여러 리스트에 속할 수 있음 */
+    struct list_elem all_elem; /* 모든 스레드가 포함된 all_list의 리스트 요소 */
 
-	/* 새로 추가된 필드 */
-	int64_t wakeup_tick;	   /* 스레드가 깨어날 시점(틱 단위) */
-	int original_priority;	   /* 우선순위 기부 전 원래 스레드 우선순위 */
-	struct list locks_hold;	   /* 스레드가 보유한 락들의 리스트(순서 없음) */
-	struct lock *waiting_lock; /* 현재 스레드가 기다리고 있는 락 */
-	int nice;				   /* 나이스 값(스케줄링에서 사용) */
-	int recent_cpu;			   /* 최근 CPU 사용량(스케줄링 계산용) */
-	// userprog
-	int exit_status;
+    /* 새로 추가된 필드 */
+    int64_t wakeup_tick;       /* 스레드가 깨어날 시점(틱 단위) */
+    int original_priority;     /* 우선순위 기부 전 원래 스레드 우선순위 */
+    struct list locks_hold;    /* 스레드가 보유한 락들의 리스트(순서 없음) */
+    struct lock *waiting_lock; /* 현재 스레드가 기다리고 있는 락 */
+    int nice;                  /* 나이스 값(스케줄링에서 사용) */
+    int recent_cpu;            /* 최근 CPU 사용량(스케줄링 계산용) */
+    // userprog
+    int exit_status;
+    struct file *fd_table[128];
+    int next_fd;
 #ifdef USERPROG
-	/* Owned by userprog/process.c. */
-	uint64_t *pml4; /* Page map level 4 */
+    /* Owned by userprog/process.c. */
+    uint64_t *pml4; /* Page map level 4 */
 #endif
 #ifdef VM
-	/* Table for whole virtual memory owned by thread. */
-	struct supplemental_page_table spt;
+    /* Table for whole virtual memory owned by thread. */
+    struct supplemental_page_table spt;
 #endif
 
-	/* Owned by thread.c. */
-	struct intr_frame tf; /* Information for switching */
-	unsigned magic;		  /* Detects stack overflow. */
+    /* Owned by thread.c. */
+    struct intr_frame tf; /* Information for switching */
+    unsigned magic;       /* Detects stack overflow. */
 };
 
 /* 	If false (default), use round-robin scheduler.
-	If true, use multi-level feedback queue scheduler.
-	Controlled by kernel command-line option "-o mlfqs". */
+    If true, use multi-level feedback queue scheduler.
+    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
 
 void thread_init(void);
