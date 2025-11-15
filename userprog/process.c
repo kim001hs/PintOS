@@ -184,16 +184,15 @@ int process_exec(void *f_name)
 	process_cleanup();
 
 	// todo
-	char *argv[128]; // 인자 128개까지 받음
+	char *argv[64]; // 인자 64개까지 받음
 	int argc = 0;
 	char *save_ptr;
 	for (char *token = strtok_r(file_name, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr))
 	{
-		if (argc >= 128)
+		if (argc >= 64)
 			break;
 		argv[argc++] = token;
 	}
-	argv[argc] = NULL;
 
 	/* And then load the binary */
 	success = load(file_name, &_if);
@@ -218,13 +217,13 @@ int process_exec(void *f_name)
 char *push_argument(char **argv, int argc, void **rsp_ptr)
 {
 	intptr_t cur_rsp = (uintptr_t)*rsp_ptr; // 현재 스택 최상단 주소
-	void *argv_ptr[129];					// argv[n]을 가리키는 포인터 배열
+	void *argv_ptr[65];						// argv[n]을 가리키는 포인터 배열
 	for (int i = argc - 1; i >= 0; i--)
 	{
 		size_t cur_len = strlen(argv[i]) + 1;
 		cur_rsp -= cur_len;
 		argv_ptr[i] = cur_rsp;
-		memcpy(cur_rsp, argv[i], cur_len);
+		memcpy((void *)cur_rsp, argv[i], cur_len);
 	}
 	argv_ptr[argc] = NULL;
 	cur_rsp = cur_rsp & ~0x7;
@@ -236,7 +235,7 @@ char *push_argument(char **argv, int argc, void **rsp_ptr)
 	char *argv_start = cur_rsp; // argv_ptr[0]의 주소 -> rsi에 저장할 주소
 	// return address(dummy) 푸시
 	cur_rsp -= sizeof(void *);
-	memset(cur_rsp, 0, sizeof(void *)); // 0으로 채워서 NULL로 만듬
+	memset((void *)cur_rsp, 0, sizeof(void *)); // 0으로 채워서 NULL로 만듬
 
 	*rsp_ptr = cur_rsp; // 스택 최상단(가장 낮은 주소) -> rsp에 저장할 주소
 	return (char *)argv_start;
