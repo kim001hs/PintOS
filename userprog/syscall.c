@@ -277,9 +277,9 @@ static int s_dup2(int oldfd, int newfd)
 	// - **`fork()` 이후에도 dup된 fd의 의미는 유지되어야 합니다.**
 }
 
-static void s_check_access(const char *fn_copy)
+static void s_check_access(const char *file)
 {
-	if (fn_copy == NULL || !is_user_vaddr(fn_copy) || pml4_get_page(thread_current()->pml4, fn_copy) == NULL)
+	if (file == NULL || !is_user_vaddr(file) || pml4_get_page(thread_current()->pml4, file) == NULL)
 	{
 		s_exit(-1);
 	}
