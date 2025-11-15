@@ -7,9 +7,12 @@
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
+#include "threads/synch.h"
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
+
+static struct lock filesys_lock;
 
 static void s_halt(void) NO_RETURN;
 static void s_exit(int status) NO_RETURN;
@@ -25,6 +28,8 @@ static int s_write(int fd, const void *buffer, unsigned length);
 static void s_seek(int fd, unsigned position);
 static unsigned s_tell(int fd);
 static void s_close(int fd);
+
+static void s_check_access(const char *file);
 // extra
 static int s_dup2(int oldfd, int newfd);
 
@@ -51,6 +56,7 @@ void syscall_init(void)
 	 * until the syscall_entry swaps the userland stack to the kernel
 	 * mode stack. Therefore, we masked the FLAG_FL. */
 	write_msr(MSR_SYSCALL_MASK, FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
+	lock_init(&filesys_lock);
 }
 
 /* The main system call interface */
@@ -214,13 +220,38 @@ static bool s_remove(const char *file)
 
 static int s_open(const char *file)
 {
-	// 	파일을 열고 **파일 디스크립터(fd)**를 반환합니다. 실패 시 `-1`.
+	s_check_access(file);
+	int fd = -1;
 
-	// - **fd 0**: 표준 입력 (STDIN)
-	// - **fd 1**: 표준 출력 (STDOUT)
-	// - 사용자 프로세스는 **0, 1 외의 디스크립터**만 받을 수 있음
-	// - 파일을 여러 번 열면 각각 다른 fd 반환
-	// - **fd는 자식에게 상속되며**, fd는 독립적으로 닫힘
+	lock_acquire(&filesys_lock);
+	struct file *target_file = filesys_open(file);
+	lock_release(&filesys_lock);
+
+	if (target_file == NULL)
+	{
+		return -1;
+	}
+
+	struct thread *t = thread_current();
+
+	for (int i = 2; i < 128; i++)
+	{
+		if (t->fd_table[i] == NULL)
+		{
+			t->fd_table[i] = target_file;
+			fd = i;
+			break;
+		}
+	}
+	if (fd == -1)
+	{
+		/* FD 공간이 없음 → file 닫고 실패 반환 */
+		lock_acquire(&filesys_lock);
+		file_close(target_file);
+		lock_release(&filesys_lock);
+		return -1;
+	}
+	return fd;
 }
 
 static int s_filesize(int fd)

@@ -222,8 +222,8 @@ char *push_argument(char **argv, int argc, void **rsp_ptr)
 	{
 		size_t cur_len = strlen(argv[i]) + 1;
 		cur_rsp -= cur_len;
-		argv_ptr[i] = cur_rsp;
 		memcpy((void *)cur_rsp, argv[i], cur_len);
+		argv_ptr[i] = cur_rsp;
 	}
 	argv_ptr[argc] = NULL;
 	cur_rsp = cur_rsp & ~0x7;
