@@ -9,7 +9,16 @@
 #include "intrinsic.h"
 #include "user/syscall.h"
 #include "threads/init.h"
-
+// 추가
+#include "threads/synch.h"
+#include "filesys/file.h"
+/* 전역 파일 락.
+   파일 관련 시스템 콜을 수행할 때마다 이 락을 획득하여
+   파일 시스템의 손상을 방지한다.
+   Pintos에는 파일별 락이 없기 때문에,
+   서로 다른 파일을 접근하는 경우라도
+   현재 파일 시스템 콜이 끝날 때까지 대기해야 한다. */
+struct lock syscall_file_lock;
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
 
@@ -35,6 +44,9 @@ void syscall_init(void)
 	 * until the syscall_entry swaps the userland stack to the kernel
 	 * mode stack. Therefore, we masked the FLAG_FL. */
 	write_msr(MSR_SYSCALL_MASK, FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
+
+	// 파일 시스템 콜용 락 init
+	lock_init(syscall_file_lock);
 }
 
 /* The main system call interface */
@@ -220,16 +232,50 @@ int read(int fd, void *buffer, unsigned length)
 	// 반환값은 실제로 읽은 바이트 수 (EOF이면 0, 실패 시 -1). fd 0이면 키보드에서 입력.
 }
 
+// write
+//
+/* Writes size bytes from buffer to the open file fd.
+Returns the number of bytes actually written,
+which may be less than size if some bytes could not be written. */
 int write(int fd, const void *buffer, unsigned length)
 {
-	// start
-	// edit
-	// 	`fd`에 `buffer`의 `size`만큼의 데이터를 씀. 실제로 쓴 바이트 수를 반환.
 
-	// - `fd 1`이면 콘솔 출력
-	// - 콘솔에 출력할 땐 가능하면 `putbuf()`를 한 번만 호출해야 함 (interleaving 방지)
-	// - 파일 끝을 넘기는 쓰기는 기본 파일 시스템에서는 지원하지 않음 → 가능한 만큼만 쓰고 그 수 반환
+	if (buffer == NULL)
+		exit(-1);
+
+	// 버퍼 메모리의 주소확인
+	// validate_ptr(&buffer);
+	// validate_ptr((const uint64_t *)buffer + length - 1);
+
+	// 콘솔 출력
+	if (fd == 1)
+	{
+		putbuf(buffer, length);
+		return length;
+	}
+
+	// 파일에 write 하기
+	struct file *curr_file = process_get_file(fd);
+
+	// 파일을 못 가지오면
+	if (curr_file == NULL)
+		return -1;
+
+	// write 하기전에 lock
+	lock_acquire(syscall_file_lock);
+	int written = file_write(curr_file, buffer, length); // file.c
+	lock_release(syscall_file_lock);
+
+	return written;
 }
+
+struct file process_get_file(int fd)
+{
+	// 프로세스마다 descriptor table 만들고, 구현
+}
+
+//
+// write
 
 void seek(int fd, unsigned position)
 {
