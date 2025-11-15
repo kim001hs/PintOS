@@ -8,6 +8,9 @@
 #include "threads/flags.h"
 #include "intrinsic.h"
 
+// 추가
+void validate_ptr(const uint64_t *ptr);
+
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
 
@@ -198,6 +201,7 @@ static int s_wait(int tid)
 
 static bool s_create(const char *file, unsigned initial_size)
 {
+	validate_ptr(file);
 	// 	크기 `initial_size`의 새 파일을 생성합니다. 성공 시 `true`, 실패 시 `false` 반환.
 
 	// > 생성은 열기와 다릅니다. 열려면 open() 호출 필요.
@@ -206,11 +210,13 @@ static bool s_create(const char *file, unsigned initial_size)
 
 static bool s_remove(const char *file)
 {
+	validate_ptr(file);
 	// 파일을 삭제합니다. 열려 있든 닫혀 있든 상관없이 삭제 가능. 성공 시 true.
 }
 
 static int s_open(const char *file)
 {
+	validate_ptr(file);
 	// 	파일을 열고 **파일 디스크립터(fd)**를 반환합니다. 실패 시 `-1`.
 
 	// - **fd 0**: 표준 입력 (STDIN)
@@ -273,4 +279,17 @@ static int s_dup2(int oldfd, int newfd)
 	// - 복제된 디스크립터는 **파일 오프셋과 상태 플래그를 공유**합니다.
 	// 	- 예: `seek()`으로 하나의 파일 위치를 바꾸면, 다른 디스크립터도 같은 위치를 가리킵니다.
 	// - **`fork()` 이후에도 dup된 fd의 의미는 유지되어야 합니다.**
+}
+
+// 추가적인 예외처리
+void validate_ptr(const uint64_t *ptr)
+{
+	// 1. 일단 포인터가 NULL인지 확인
+	// 2. 포인터가 user_prog 안에있는지 확인
+	// 3. 물리 메모리에 mapping 되어있는지 확인
+	if (ptr == NULL || !is_user_vaddr(ptr) || pml4_get_page(thread_current()->pml4, ptr) == NULL)
+	{
+		s_exit(-1);
+	}
+	return;
 }
