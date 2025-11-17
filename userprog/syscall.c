@@ -8,6 +8,8 @@
 #include "threads/flags.h"
 #include "intrinsic.h"
 #include "threads/synch.h"
+#include "filesys/file.h"
+#include "filesys/filesys.h"
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
@@ -62,13 +64,8 @@ void syscall_init(void)
 	 * until the syscall_entry swaps the userland stack to the kernel
 	 * mode stack. Therefore, we masked the FLAG_FL. */
 	write_msr(MSR_SYSCALL_MASK, FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
-<<<<<<< HEAD
-
 	// 파일 시스템 콜용 락 init
-	lock_init(syscall_file_lock);
-	== == == =
-				 lock_init(&filesys_lock);
->>>>>>> origin/master
+	lock_init(&filesys_lock);
 }
 
 /* The main system call interface */
@@ -282,15 +279,14 @@ static int s_read(int fd, void *buffer, unsigned length)
 /* Writes size bytes from buffer to the open file fd.
 Returns the number of bytes actually written,
 which may be less than size if some bytes could not be written. */
-int write(int fd, const void *buffer, unsigned length)
+int s_write(int fd, const void *buffer, unsigned length)
 {
-
 	if (buffer == NULL)
-		exit(-1);
-
-	// 버퍼 메모리의 주소확인
-	// validate_ptr(&buffer);
-	// validate_ptr((const uint64_t *)buffer + length - 1);
+	{
+		return -1;
+	}
+	// 버퍼 주소 확인 (user 영역인지)
+	s_check_access(buffer);
 
 	// 콘솔 출력
 	if (fd == 1)
@@ -298,31 +294,29 @@ int write(int fd, const void *buffer, unsigned length)
 		putbuf(buffer, length);
 		return length;
 	}
+	// fd 값 확인
+	if (fd < 2 || fd >= 128)
+	{
+		return -1;
+	}
 
 	// 파일에 write 하기
-	struct file *curr_file = process_get_file(fd);
-
+	struct file *curr_file = thread_current()->fd_table[fd];
 	// 파일을 못 가지오면
 	if (curr_file == NULL)
+	{
 		return -1;
+	}
 
 	// write 하기전에 lock
-	lock_acquire(syscall_file_lock);
-	int written = file_write(curr_file, buffer, length); // file.c
-	lock_release(syscall_file_lock);
+	lock_acquire(&filesys_lock);
+	int written = file_write(curr_file, buffer, length); // file.h
+	lock_release(&filesys_lock);
 
 	return written;
 }
 
-struct file process_get_file(int fd)
-{
-	// 프로세스마다 descriptor table 만들고, 구현
-}
-
-//
-// write
-
-void seek(int fd, unsigned position)
+void s_seek(int fd, unsigned position)
 {
 	// 	다음 읽기/쓰기 위치를 `position`으로 변경. 파일 끝을 넘어가도 오류 아님.
 
