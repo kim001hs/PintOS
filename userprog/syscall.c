@@ -42,14 +42,12 @@ static void s_check_buffer(const void *buffer, unsigned length);
 static void s_check_fd(int fd);
 // extra
 static int s_dup2(int oldfd, int newfd);
-<<<<<<< HEAD
-=======
 
 static void s_check_access(const char *);
 
 int process_get_file(int fd);
 void check_user(const void *uaddr);
->>>>>>> edcd4bf (123)
+
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
