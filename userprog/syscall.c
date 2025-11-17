@@ -267,7 +267,14 @@ static int s_filesize(int fd)
 {
 	// 열려 있는 파일의 크기를 바이트 단위로 반환합니다.
 	s_check_fd(fd);
-	return file_length(thread_current()->fd_table[fd]);
+	struct file *f = thread_current()->fd_table[fd];
+	if (f == NULL)
+		return -1;
+	int size;
+	lock_acquire(&filesys_lock);
+	size = file_length(f);
+	lock_release(&filesys_lock);
+	return size;
 }
 
 static int s_read(int fd, void *buffer, unsigned length)
