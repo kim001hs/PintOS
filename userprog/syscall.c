@@ -38,10 +38,10 @@ static unsigned s_tell(int fd);
 static void s_close(int fd);
 
 static void s_check_access(const char *file);
+static void s_check_buffer(const void *buffer, unsigned length);
+static void s_check_fd(int fd);
 // extra
 static int s_dup2(int oldfd, int newfd);
-
-static void s_check_access(const char *);
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
@@ -281,23 +281,14 @@ Returns the number of bytes actually written,
 which may be less than size if some bytes could not be written. */
 static int s_write(int fd, const void *buffer, unsigned length)
 {
-	if (buffer == NULL)
-	{
-		return -1;
-	}
-	// 버퍼 주소 확인 (user 영역인지)
-	s_check_access(buffer);
+	s_check_buffer(buffer, length);
+	s_check_fd(fd);
 
 	// 콘솔 출력
 	if (fd == 1)
 	{
 		putbuf(buffer, length);
 		return length;
-	}
-	// fd 값 확인
-	if (fd < 2 || fd >= 128)
-	{
-		return -1;
 	}
 
 	// 파일에 write 하기
@@ -349,6 +340,30 @@ static int s_dup2(int oldfd, int newfd)
 static void s_check_access(const char *file)
 {
 	if (file == NULL || !is_user_vaddr(file) || pml4_get_page(thread_current()->pml4, file) == NULL)
+	{
+		s_exit(-1);
+	}
+}
+
+static void s_check_buffer(const void *buffer, unsigned length)
+{
+	if (buffer == NULL)
+		s_exit(-1);
+	const uint8_t *start = buffer;
+	const uint8_t *end = buffer + length - 1;
+	s_check_access(start);
+	if (length > 0)
+		s_check_access(end);
+	for (const uint8_t *p = pg_round_down(start) + PGSIZE; p <= pg_round_down(end); p += PGSIZE)
+	{
+		s_check_access(p);
+	}
+}
+
+static void s_check_fd(int fd)
+{
+	// fd 값 확인
+	if (fd < 1 || fd >= 128)
 	{
 		s_exit(-1);
 	}
