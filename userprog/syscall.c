@@ -8,10 +8,18 @@
 #include "threads/flags.h"
 #include "intrinsic.h"
 #include "threads/synch.h"
+#include "filesys/file.h"
+#include "filesys/filesys.h"
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
 
+/* 전역 파일 락.
+   파일 관련 시스템 콜을 수행할 때마다 이 락을 획득하여
+   파일 시스템의 손상을 방지한다.
+   Pintos에는 파일별 락이 없기 때문에,
+   서로 다른 파일을 접근하는 경우라도
+   현재 파일 시스템 콜이 끝날 때까지 대기해야 한다. */
 static struct lock filesys_lock;
 
 static void s_halt(void) NO_RETURN;
@@ -30,10 +38,10 @@ static unsigned s_tell(int fd);
 static void s_close(int fd);
 
 static void s_check_access(const char *file);
+static void s_check_buffer(const void *buffer, unsigned length);
+static void s_check_fd(int fd);
 // extra
 static int s_dup2(int oldfd, int newfd);
-
-static void s_check_access(const char *);
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
@@ -56,6 +64,7 @@ void syscall_init(void)
 	 * until the syscall_entry swaps the userland stack to the kernel
 	 * mode stack. Therefore, we masked the FLAG_FL. */
 	write_msr(MSR_SYSCALL_MASK, FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
+	// 파일 시스템 콜용 락 init
 	lock_init(&filesys_lock);
 }
 
@@ -265,17 +274,37 @@ static int s_read(int fd, void *buffer, unsigned length)
 	// 반환값은 실제로 읽은 바이트 수 (EOF이면 0, 실패 시 -1). fd 0이면 키보드에서 입력.
 }
 
+// write
+//
+/* Writes size bytes from buffer to the open file fd.
+Returns the number of bytes actually written,
+which may be less than size if some bytes could not be written. */
 static int s_write(int fd, const void *buffer, unsigned length)
 {
-	if (buffer == NULL)
-		return;
+	s_check_buffer(buffer, length);
+	s_check_fd(fd);
+
+	// 콘솔 출력
 	if (fd == 1)
 	{
 		putbuf(buffer, length);
 		return length;
 	}
-	// 1 아닐 때 구현 필요
-	return -1;
+
+	// 파일에 write 하기
+	struct file *curr_file = thread_current()->fd_table[fd];
+	// 파일을 못 가져오면
+	if (curr_file == NULL)
+	{
+		return -1;
+	}
+
+	// write 하기전에 lock
+	lock_acquire(&filesys_lock);
+	int written = file_write(curr_file, buffer, length); // file.h
+	lock_release(&filesys_lock);
+
+	return written;
 }
 
 static void s_seek(int fd, unsigned position)
@@ -311,6 +340,31 @@ static int s_dup2(int oldfd, int newfd)
 static void s_check_access(const char *file)
 {
 	if (file == NULL || !is_user_vaddr(file) || pml4_get_page(thread_current()->pml4, file) == NULL)
+	{
+		s_exit(-1);
+	}
+}
+
+static void s_check_buffer(const void *buffer, unsigned length)
+{
+	if (buffer == NULL)
+		s_exit(-1);
+	const uint8_t *start = (const uint8_t *)buffer;
+	const uint8_t *end = start + length - 1;
+	s_check_access(start);
+	if (length > 0)
+		s_check_access(end);
+
+	for (const uint8_t *p = pg_round_down(start) + PGSIZE; p <= pg_round_down(end); p += PGSIZE)
+	{
+		s_check_access(p);
+	}
+}
+
+static void s_check_fd(int fd)
+{
+	// fd 값 확인
+	if (fd < 1 || fd >= 128)
 	{
 		s_exit(-1);
 	}

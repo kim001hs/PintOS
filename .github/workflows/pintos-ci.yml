@@ -2,151 +2,159 @@ name: Pintos Test CI
 
 on:
   pull_request:
-    branches:
-      - main
-      - develop
+  workflow_dispatch:
 
 jobs:
-  test:
+  pintos-test:
+    # Skip draft PRs
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+
     runs-on: ubuntu-22.04
     timeout-minutes: 60
+
     permissions:
       contents: read
       pull-requests: write
 
     steps:
+      # ----------------------------
+      # Checkout
+      # ----------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install QEMU and build tools
+      # ----------------------------
+      # Install tools
+      # ----------------------------
+      - name: Install QEMU & build tools
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            qemu-system-x86 \
-            gcc \
-            g++ \
-            make \
-            perl \
-            python3
-          
-          if [ -f /usr/bin/qemu-system-i386 ]; then
-            sudo ln -sf /usr/bin/qemu-system-i386 /usr/bin/qemu
-          elif [ -f /usr/bin/qemu-system-x86_64 ]; then
-            sudo ln -sf /usr/bin/qemu-system-x86_64 /usr/bin/qemu
-          fi
-          
+            qemu-system-i386 \
+            gcc g++ make perl python3
+          sudo ln -sf /usr/bin/qemu-system-i386 /usr/bin/qemu
           qemu --version
 
-      - name: Activate Pintos environment
-        shell: bash
+      # ----------------------------
+      # Activate Pintos environment
+      # ----------------------------
+      - name: Activate Pintos
         run: |
-          source ./activate
-          echo "$GITHUB_WORKSPACE/utils" >> "$GITHUB_PATH"
+          if [ -f "./activate" ]; then
+            source ./activate
+          fi
+          echo "$GITHUB_WORKSPACE/utils" >> $GITHUB_PATH
 
-      - name: Run Pintos tests with detailed results
+      # ----------------------------
+      # Run Pintos Tests
+      # ----------------------------
+      - name: Run Pintos tests
         env:
           PINTOSOPTS: -v
         run: |
           set +e
-          
-          # projects=(threads)
-          projects=(user_prog)
-          projects=(threads, user_prog, vm, filesys)
-          
+          projects=("userprog")
           echo "## 🧪 Pintos Test Results" > test-summary.md
           echo "" >> test-summary.md
-          echo "**Commit:** \`${{ github.event.pull_request.head.sha }}\`" >> test-summary.md
+
+          # Commit reference
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "**Commit:** \`${{ github.event.pull_request.head.sha }}\`" >> test-summary.md
+          else
+            echo "**Commit:** \`${{ github.sha }}\`" >> test-summary.md
+          fi
           echo "" >> test-summary.md
-          
+
           grand_pass=0
           grand_total=0
 
           for project in "${projects[@]}"; do
             echo "::group::Testing $project"
-            
-            if [ -d "$project" ]; then
-              cd "$project"
-              
-              make clean
-              if ! make; then
-                echo "### ❌ $project - Build Failed" >> "$GITHUB_WORKSPACE/test-summary.md"
-                echo "" >> "$GITHUB_WORKSPACE/test-summary.md"
-                cd "$GITHUB_WORKSPACE"
-                echo "::endgroup::"
-                continue
-              fi
-              
-              cd build
-              make check VERBOSE=1 || true
-              
-              result_files=$(find tests -name '*.result' 2>/dev/null | sort)
-              total=$(echo "$result_files" | wc -l | tr -d ' ')
-              
-              if [ "$total" -eq 0 ]; then
-                echo "### ⚠️ $project - No Tests Found" >> "$GITHUB_WORKSPACE/test-summary.md"
-                echo "" >> "$GITHUB_WORKSPACE/test-summary.md"
-              else
-                pass=0
-                fail=0
-                
-                echo "### 📁 $project" >> "$GITHUB_WORKSPACE/test-summary.md"
-                echo "" >> "$GITHUB_WORKSPACE/test-summary.md"
-                echo "<details>" >> "$GITHUB_WORKSPACE/test-summary.md"
-                echo "<summary><b>Test Cases ($total total)</b> - Click to expand</summary>" >> "$GITHUB_WORKSPACE/test-summary.md"
-                echo "" >> "$GITHUB_WORKSPACE/test-summary.md"
-                
-                for result_file in $result_files; do
-                  test_name=$(basename "$result_file" .result)
-                  if grep -q "PASS" "$result_file" 2>/dev/null; then
-                    echo "- ✅ \`$test_name\`" >> "$GITHUB_WORKSPACE/test-summary.md"
-                    pass=$((pass + 1))
-                  else
-                    echo "- ❌ \`$test_name\`" >> "$GITHUB_WORKSPACE/test-summary.md"
-                    fail=$((fail + 1))
-                  fi
-                done
-                
-                echo "" >> "$GITHUB_WORKSPACE/test-summary.md"
-                echo "</details>" >> "$GITHUB_WORKSPACE/test-summary.md"
-                echo "" >> "$GITHUB_WORKSPACE/test-summary.md"
-                
-                pass_rate=$(awk "BEGIN {printf \"%.1f%%\", ($pass/$total)*100}")
-                echo "**Summary:** $pass / $total passed ($pass_rate)" >> "$GITHUB_WORKSPACE/test-summary.md"
-                echo "" >> "$GITHUB_WORKSPACE/test-summary.md"
-                
-                grand_pass=$((grand_pass + pass))
-                grand_total=$((grand_total + total))
-              fi
-              
-              cd "$GITHUB_WORKSPACE"
+
+            if [ ! -d "$project" ]; then
+              echo "### ⚠️ Missing directory: $project" >> "$GITHUB_WORKSPACE/test-summary.md"
+              echo "::endgroup::"
+              continue
             fi
-            
+
+            cd "$project"
+            make clean
+            make || {
+              echo "### ❌ Build failed: $project" >> "$GITHUB_WORKSPACE/test-summary.md"
+              cd "$GITHUB_WORKSPACE"
+              echo "::endgroup::"
+              continue
+            }
+
+            cd build
+            make check VERBOSE=1 || true
+
+            result_files=$(find tests -name '*.result' | sort)
+            total=$(echo "$result_files" | wc -l)
+
+            if [ "$total" -eq 0 ]; then
+              echo "### ⚠️ No tests found in $project" >> "$GITHUB_WORKSPACE/test-summary.md"
+              cd "$GITHUB_WORKSPACE"
+              echo "::endgroup::"
+              continue
+            fi
+
+            pass=0
+            fail=0
+
+            echo "### 📁 $project" >> "$GITHUB_WORKSPACE/test-summary.md"
+            echo "<details><summary><b>Test Cases ($total)</b></summary>" >> "$GITHUB_WORKSPACE/test-summary.md"
+
+            for file in $result_files; do
+              name=$(basename "$file" .result)
+              if grep -q "PASS" "$file"; then
+                echo "- ✅ \`$name\`" >> "$GITHUB_WORKSPACE/test-summary.md"
+                pass=$((pass+1))
+              else
+                echo "- ❌ \`$name\`" >> "$GITHUB_WORKSPACE/test-summary.md"
+                fail=$((fail+1))
+              fi
+            done
+
+            echo "</details>" >> "$GITHUB_WORKSPACE/test-summary.md"
+            echo "" >> "$GITHUB_WORKSPACE/test-summary.md"
+
+            rate=$(awk "BEGIN {printf \"%.1f%%\", ($pass/$total)*100}")
+            echo "**Summary:** $pass / $total passed ($rate)" >> "$GITHUB_WORKSPACE/test-summary.md"
+            echo "" >> "$GITHUB_WORKSPACE/test-summary.md"
+
+            grand_pass=$((grand_pass+pass))
+            grand_total=$((grand_total+total))
+
+            cd "$GITHUB_WORKSPACE"
             echo "::endgroup::"
           done
 
           if [ "$grand_total" -gt 0 ]; then
-            grand_pass_rate=$(awk "BEGIN {printf \"%.1f%%\", ($grand_pass/$grand_total)*100}")
+            rate=$(awk "BEGIN {printf \"%.1f%%\", ($grand_pass/$grand_total)*100}")
             echo "---" >> test-summary.md
-            echo "" >> test-summary.md
             echo "## 📊 Overall Results" >> test-summary.md
-            echo "" >> test-summary.md
-            echo "**${grand_pass} / ${grand_total}** tests passed (${grand_pass_rate})" >> test-summary.md
+            echo "**$grand_pass / $grand_total** tests passed ($rate)" >> test-summary.md
           fi
-          
+
           echo "" >> test-summary.md
           echo "_Last updated: $(date -u +'%Y-%m-%d %H:%M:%S UTC')_" >> test-summary.md
-          
+
           cat test-summary.md >> "$GITHUB_STEP_SUMMARY"
 
+      # ----------------------------
+      # PR Comment Update
+      # ----------------------------
       - name: Find existing comment
+        if: ${{ github.event_name == 'pull_request' }}
         uses: peter-evans/find-comment@v3
         id: find-comment
         with:
           issue-number: ${{ github.event.pull_request.number }}
-          comment-author: 'github-actions[bot]'
           body-includes: '🧪 Pintos Test Results'
 
       - name: Create or update PR comment
+        if: ${{ github.event_name == 'pull_request' }}
         uses: peter-evans/create-or-update-comment@v4
         with:
           comment-id: ${{ steps.find-comment.outputs.comment-id }}
@@ -154,13 +162,18 @@ jobs:
           body-path: test-summary.md
           edit-mode: replace
 
+      # ----------------------------
+      # Upload artifacts
+      # ----------------------------
       - name: Upload test artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: pintos-test-results
           path: |
-            */build/tests/**/*.output
-            */build/tests/**/*.result
+            threads/build/tests/**/*.output
+            threads/build/tests/**/*.result
+            userprog/build/tests/**/*.output
+            userprog/build/tests/**/*.result
             test-summary.md
           retention-days: 7
