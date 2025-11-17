@@ -293,7 +293,7 @@ static int s_write(int fd, const void *buffer, unsigned length)
 
 	// 파일에 write 하기
 	struct file *curr_file = thread_current()->fd_table[fd];
-	// 파일을 못 가지오면
+	// 파일을 못 가져오면
 	if (curr_file == NULL)
 	{
 		return -1;
@@ -349,11 +349,12 @@ static void s_check_buffer(const void *buffer, unsigned length)
 {
 	if (buffer == NULL)
 		s_exit(-1);
-	const uint8_t *start = buffer;
-	const uint8_t *end = buffer + length - 1;
+	const uint8_t *start = (const uint8_t *)buffer;
+	const uint8_t *end = start + length - 1;
 	s_check_access(start);
 	if (length > 0)
 		s_check_access(end);
+
 	for (const uint8_t *p = pg_round_down(start) + PGSIZE; p <= pg_round_down(end); p += PGSIZE)
 	{
 		s_check_access(p);
