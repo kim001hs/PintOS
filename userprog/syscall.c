@@ -39,7 +39,12 @@ static void s_close(int fd);
 
 static void s_check_access(const char *file);
 static void s_check_buffer(const void *buffer, unsigned length);
-static void s_check_fd(int fd);
+static void s_check_fd(int fd, bool type);
+enum
+{
+	READ,
+	WRITE
+};
 // extra
 static int s_dup2(int oldfd, int newfd);
 /* System call.
@@ -265,8 +270,7 @@ static int s_open(const char *file)
 
 static int s_filesize(int fd)
 {
-	// 열려 있는 파일의 크기를 바이트 단위로 반환합니다.
-	s_check_fd(fd);
+	s_check_fd(fd, READ);
 	struct file *f = thread_current()->fd_table[fd];
 	if (f == NULL)
 		return -1;
@@ -280,7 +284,7 @@ static int s_filesize(int fd)
 static int s_read(int fd, void *buffer, unsigned length)
 {
 	s_check_buffer(buffer, length);
-	s_check_fd(fd);
+	s_check_fd(fd, READ);
 	int bytes_read = 0;
 
 	// 2. stdin (fd == 0)
@@ -316,7 +320,7 @@ which may be less than size if some bytes could not be written. */
 static int s_write(int fd, const void *buffer, unsigned length)
 {
 	s_check_buffer(buffer, length);
-	s_check_fd(fd);
+	s_check_fd(fd, WRITE);
 
 	// 콘솔 출력
 	if (fd == 1)
@@ -395,10 +399,13 @@ static void s_check_buffer(const void *buffer, unsigned length)
 	}
 }
 
-static void s_check_fd(int fd)
+static void s_check_fd(int fd, bool type)
 {
-	// fd 값 확인
-	if (fd < 1 || fd >= 128)
+	if (fd < 0 || fd >= 128)
+	{
+		s_exit(-1);
+	}
+	else if ((type == READ && fd == 1) || (type == WRITE && fd == 0))
 	{
 		s_exit(-1);
 	}
