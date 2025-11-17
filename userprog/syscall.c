@@ -45,8 +45,6 @@ static int s_dup2(int oldfd, int newfd);
 
 static void s_check_access(const char *);
 
-int process_get_file(int fd);
-void check_user(const void *uaddr);
 
 /* System call.
  *
@@ -276,8 +274,7 @@ static int s_filesize(int fd)
 
 static int s_read(int fd, void *buffer, unsigned length)
 {
-	s_check_access(buffer);
-	s_check_access(buffer + length - 1);
+	s_check_buffer(buffer, length);
 	s_check_fd(fd);
 	int bytes_read = 0;
 
