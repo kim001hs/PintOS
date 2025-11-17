@@ -39,7 +39,12 @@ static void s_close(int fd);
 
 static void s_check_access(const char *file);
 static void s_check_buffer(const void *buffer, unsigned length);
-static void s_check_fd(int fd);
+enum fd_type
+{
+	READ = 0,
+	WRITE = 1
+};
+static void s_check_fd(int fd, enum fd_type type);
 // extra
 static int s_dup2(int oldfd, int newfd);
 /* System call.
@@ -265,13 +270,42 @@ static int s_open(const char *file)
 
 static int s_filesize(int fd)
 {
-	// 열려 있는 파일의 크기를 바이트 단위로 반환합니다.
+	s_check_fd(fd, READ);
+	struct file *f = thread_current()->fd_table[fd];
+	if (f == NULL)
+		return -1;
+	int size;
+	lock_acquire(&filesys_lock);
+	size = file_length(f);
+	lock_release(&filesys_lock);
+	return size;
 }
 
 static int s_read(int fd, void *buffer, unsigned length)
 {
-	// fd에서 buffer로 최대 size 바이트 읽음.
-	// 반환값은 실제로 읽은 바이트 수 (EOF이면 0, 실패 시 -1). fd 0이면 키보드에서 입력.
+	s_check_buffer(buffer, length);
+	s_check_fd(fd, READ);
+	int bytes_read = 0;
+
+	// 2. stdin (fd == 0)
+	if (fd == 0)
+	{
+		for (unsigned i = 0; i < length; i++)
+			((uint8_t *)buffer)[i] = input_getc();
+		return length;
+	}
+
+	// 3. 파일 디스크립터에서 파일 찾기
+	struct file *f = thread_current()->fd_table[fd];
+	if (f == NULL)
+		return -1;
+
+	// 4. 파일 읽기
+	lock_acquire(&filesys_lock);
+	bytes_read = file_read(f, buffer, length);
+	lock_release(&filesys_lock);
+
+	return bytes_read;
 }
 
 // write
@@ -282,7 +316,7 @@ which may be less than size if some bytes could not be written. */
 static int s_write(int fd, const void *buffer, unsigned length)
 {
 	s_check_buffer(buffer, length);
-	s_check_fd(fd);
+	s_check_fd(fd, WRITE);
 
 	// 콘솔 출력
 	if (fd == 1)
@@ -361,10 +395,13 @@ static void s_check_buffer(const void *buffer, unsigned length)
 	}
 }
 
-static void s_check_fd(int fd)
+static void s_check_fd(int fd, enum fd_type type)
 {
-	// fd 값 확인
-	if (fd < 1 || fd >= 128)
+	if (fd < 0 || fd >= 128)
+	{
+		s_exit(-1);
+	}
+	else if ((type == READ && fd == 1) || (type == WRITE && fd == 0))
 	{
 		s_exit(-1);
 	}
