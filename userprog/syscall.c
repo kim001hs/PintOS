@@ -279,7 +279,7 @@ static int s_read(int fd, void *buffer, unsigned length)
 /* Writes size bytes from buffer to the open file fd.
 Returns the number of bytes actually written,
 which may be less than size if some bytes could not be written. */
-int s_write(int fd, const void *buffer, unsigned length)
+static int s_write(int fd, const void *buffer, unsigned length)
 {
 	if (buffer == NULL)
 	{
@@ -316,7 +316,7 @@ int s_write(int fd, const void *buffer, unsigned length)
 	return written;
 }
 
-void s_seek(int fd, unsigned position)
+static void s_seek(int fd, unsigned position)
 {
 	// 	다음 읽기/쓰기 위치를 `position`으로 변경. 파일 끝을 넘어가도 오류 아님.
 
