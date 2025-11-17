@@ -286,7 +286,7 @@ static int s_write(int fd, const void *buffer, unsigned length)
 		return -1;
 	}
 	// 버퍼 주소 확인 (user 영역인지)
-	s_check_access(buffer);
+	s_check_access((const char *)buffer);
 
 	// 콘솔 출력
 	if (fd == 1)
