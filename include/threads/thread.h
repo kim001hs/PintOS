@@ -118,6 +118,8 @@ struct thread
 	int recent_cpu;			   /* 최근 CPU 사용량(스케줄링 계산용) */
 	// userprog
 	int exit_status;
+	struct file *fd_table[128];
+
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4; /* Page map level 4 */

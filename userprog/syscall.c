@@ -7,21 +7,39 @@
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
-#include "user/syscall.h"
-#include "threads/init.h"
-// 추가
 #include "threads/synch.h"
-#include "filesys/file.h"
+
+void syscall_entry(void);
+void syscall_handler(struct intr_frame *);
+
 /* 전역 파일 락.
    파일 관련 시스템 콜을 수행할 때마다 이 락을 획득하여
    파일 시스템의 손상을 방지한다.
    Pintos에는 파일별 락이 없기 때문에,
    서로 다른 파일을 접근하는 경우라도
    현재 파일 시스템 콜이 끝날 때까지 대기해야 한다. */
-struct lock syscall_file_lock;
-void syscall_entry(void);
-void syscall_handler(struct intr_frame *);
+static struct lock filesys_lock;
 
+static void s_halt(void) NO_RETURN;
+static void s_exit(int status) NO_RETURN;
+static int s_fork(const char *thread_name);
+static int s_exec(const char *file);
+static int s_wait(pid_t);
+static bool s_create(const char *file, unsigned initial_size);
+static bool s_remove(const char *file);
+static int s_open(const char *file);
+static int s_filesize(int fd);
+static int s_read(int fd, void *buffer, unsigned length);
+static int s_write(int fd, const void *buffer, unsigned length);
+static void s_seek(int fd, unsigned position);
+static unsigned s_tell(int fd);
+static void s_close(int fd);
+
+static void s_check_access(const char *file);
+// extra
+static int s_dup2(int oldfd, int newfd);
+
+static void s_check_access(const char *);
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
@@ -44,9 +62,13 @@ void syscall_init(void)
 	 * until the syscall_entry swaps the userland stack to the kernel
 	 * mode stack. Therefore, we masked the FLAG_FL. */
 	write_msr(MSR_SYSCALL_MASK, FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
+<<<<<<< HEAD
 
 	// 파일 시스템 콜용 락 init
 	lock_init(syscall_file_lock);
+	== == == =
+				 lock_init(&filesys_lock);
+>>>>>>> origin/master
 }
 
 /* The main system call interface */
@@ -58,49 +80,46 @@ void syscall_handler(struct intr_frame *f UNUSED)
 	{
 	/* Projects 2 and later. */
 	case SYS_HALT:
-		halt();
+		s_halt();
 		break;
 	case SYS_EXIT:
-		exit(f->R.rdi);
+		s_exit(f->R.rdi);
 		break;
 	case SYS_FORK:
-		fork(f->R.rdi);
+		f->R.rax = s_fork(f->R.rdi);
 		break;
 	case SYS_EXEC:
-		if (exec(f->R.rdi) == -1)
-		{
-			exit(-1);
-		}
+		f->R.rax = s_exec(f->R.rdi);
 		break;
 	case SYS_WAIT:
-		f->R.rax = wait(f->R.rdi);
+		f->R.rax = s_wait(f->R.rdi);
 		break;
 	case SYS_CREATE:
-		f->R.rax = create(f->R.rdi, f->R.rsi);
+		f->R.rax = s_create(f->R.rdi, f->R.rsi);
 		break;
 	case SYS_REMOVE:
-		f->R.rax = remove(f->R.rdi);
+		f->R.rax = s_remove(f->R.rdi);
 		break;
 	case SYS_OPEN:
-		f->R.rax = open(f->R.rdi);
+		f->R.rax = s_open(f->R.rdi);
 		break;
 	case SYS_FILESIZE:
-		f->R.rax = filesize(f->R.rdi);
+		f->R.rax = s_filesize(f->R.rdi);
 		break;
 	case SYS_READ:
-		f->R.rax = read(f->R.rdi, f->R.rsi, f->R.rdx);
+		f->R.rax = s_read(f->R.rdi, f->R.rsi, f->R.rdx);
 		break;
 	case SYS_WRITE:
-		f->R.rax = write(f->R.rdi, f->R.rsi, f->R.rdx);
+		f->R.rax = s_write(f->R.rdi, f->R.rsi, f->R.rdx);
 		break;
 	case SYS_SEEK:
-		seek(f->R.rdi, f->R.rsi);
+		s_seek(f->R.rdi, f->R.rsi);
 		break;
 	case SYS_TELL:
-		f->R.rax = tell(f->R.rdi);
+		f->R.rax = s_tell(f->R.rdi);
 		break;
 	case SYS_CLOSE:
-		close(f->R.rdi);
+		s_close(f->R.rdi);
 		break;
 		/* Project 3 and optionally project 4. */
 		// case SYS_MMAP:
@@ -129,27 +148,26 @@ void syscall_handler(struct intr_frame *f UNUSED)
 		// 	break;
 
 	default:
-		exit(-1);
+		thread_exit();
 		break;
 	}
-	thread_exit();
 }
 
-void halt(void)
+static void s_halt(void)
 {
 	power_off();
 }
 
-void exit(int status)
+static void s_exit(int status)
 {
 	struct thread *cur = thread_current();
-	cur->exit_status = status; // 프로그램이 정상적으로 종료되었는지 확인(정상적 종료 시 0)
+	cur->exit_status = status;
 
-	printf("%s: exit(%d)\n", thread_name(), status); // 종료 시 Process Termination Message 출력
-	thread_exit();									 // 스레드 종료
+	printf("%s: exit(%d)\n", thread_name(), status);
+	thread_exit();
 }
 
-int fork(const char *thread_name)
+static int s_fork(const char *thread_name)
 {
 	// 	현재 프로세스를 복제하여 새 자식 프로세스를 생성합니다. 이름은 `thread_name`을 따릅니다. 다음 사항을 만족해야 합니다:
 
@@ -163,19 +181,21 @@ int fork(const char *thread_name)
 	// return process_fork(thread_name, thread_current()->tf); // 맞는지 몰?루
 }
 
-int exec(const char *file)
+static int s_exec(const char *file)
 {
-	// 	현재 프로세스를 `cmd_line`로 지정된 프로그램으로 **변경**합니다. 성공하면 복귀하지 않으며, 실패 시 `-1`로 종료됩니다.
+	s_check_access(file);
 
-	// - **스레드 이름은 바뀌지 않습니다**
-	// - **파일 디스크립터는 그대로 유지됩니다**
-	// fork+exec in unix
-	// create thread and run
-	// return process_exec(file);//맞는지 몰름
-	// return pid of the new chilld process
+	char *fn_copy = palloc_get_page(0);
+	if (fn_copy == NULL)
+		return -1;
+	strlcpy(fn_copy, file, PGSIZE);
+
+	int res = process_exec(fn_copy);
+	// palloc_free_page(fn_copy); free는 process_exec안에서
+	return res;
 }
 
-int wait(int tid)
+static int s_wait(int tid)
 {
 	// 	자식 프로세스 `pid`의 종료를 기다리고 종료 코드를 반환합니다:
 
@@ -195,38 +215,63 @@ int wait(int tid)
 	// > wait()는 이 프로젝트에서 가장 구현이 복잡한 시스템 콜입니다.
 	// >
 	// process_wait(tid);
+	return process_wait(tid);
 }
 
-bool create(const char *file, unsigned initial_size)
+static bool s_create(const char *file, unsigned initial_size)
 {
-	// 	크기 `initial_size`의 새 파일을 생성합니다. 성공 시 `true`, 실패 시 `false` 반환.
+	s_check_access(file);
 
-	// > 생성은 열기와 다릅니다. 열려면 open() 호출 필요.
-	// process_create_initd(file);
+	return filesys_create(file, initial_size);
 }
 
-bool remove(const char *file)
+static bool s_remove(const char *file)
 {
 	// 파일을 삭제합니다. 열려 있든 닫혀 있든 상관없이 삭제 가능. 성공 시 true.
 }
 
-int open(const char *file)
+static int s_open(const char *file)
 {
-	// 	파일을 열고 **파일 디스크립터(fd)**를 반환합니다. 실패 시 `-1`.
+	s_check_access(file);
+	int fd = -1;
 
-	// - **fd 0**: 표준 입력 (STDIN)
-	// - **fd 1**: 표준 출력 (STDOUT)
-	// - 사용자 프로세스는 **0, 1 외의 디스크립터**만 받을 수 있음
-	// - 파일을 여러 번 열면 각각 다른 fd 반환
-	// - **fd는 자식에게 상속되며**, fd는 독립적으로 닫힘
+	lock_acquire(&filesys_lock);
+	struct file *target_file = filesys_open(file);
+	lock_release(&filesys_lock);
+
+	if (target_file == NULL)
+	{
+		return -1;
+	}
+
+	struct thread *t = thread_current();
+
+	for (int i = 2; i < 128; i++)
+	{
+		if (t->fd_table[i] == NULL)
+		{
+			t->fd_table[i] = target_file;
+			fd = i;
+			break;
+		}
+	}
+	if (fd == -1)
+	{
+		/* FD 공간이 없음 → file 닫고 실패 반환 */
+		lock_acquire(&filesys_lock);
+		file_close(target_file);
+		lock_release(&filesys_lock);
+		return -1;
+	}
+	return fd;
 }
 
-int filesize(int fd)
+static int s_filesize(int fd)
 {
 	// 열려 있는 파일의 크기를 바이트 단위로 반환합니다.
 }
 
-int read(int fd, void *buffer, unsigned length)
+static int s_read(int fd, void *buffer, unsigned length)
 {
 	// fd에서 buffer로 최대 size 바이트 읽음.
 	// 반환값은 실제로 읽은 바이트 수 (EOF이면 0, 실패 시 -1). fd 0이면 키보드에서 입력.
@@ -284,27 +329,33 @@ void seek(int fd, unsigned position)
 	// > 다만 Project 4 이전에는 파일 길이가 고정이므로, 실제로는 오류가 발생할 수 있음.
 }
 
-unsigned tell(int fd)
+static unsigned s_tell(int fd)
 {
 	// 현재 fd에서 다음 읽기/쓰기가 이루어질 위치(바이트 단위)를 반환.
 }
 
-void close(int fd)
+static void s_close(int fd)
 {
 	// 파일 디스크립터 fd를 닫습니다. 프로세스가 종료되면 모든 fd는 자동으로 닫힙니다.
 }
 
-// int dup2(int oldfd, int newfd)
-// {
-// - `dup2()`는 `oldfd`를 복제하여 **지정된 번호인 `newfd`로 새로운 파일 디스크립터**를 생성합니다.
-// - 성공 시 `newfd`를 반환합니다.
+static int s_dup2(int oldfd, int newfd)
+{
+	// - `dup2()`는 `oldfd`를 복제하여 **지정된 번호인 `newfd`로 새로운 파일 디스크립터**를 생성합니다.
+	// - 성공 시 `newfd`를 반환합니다.
+	// ### 동작 규칙:
+	// - `oldfd`가 **유효하지 않으면**, 실패하며 `1`을 반환하고, `newfd`는 **닫히지 않습니다**.
+	// - `oldfd`와 `newfd`가 **같으면**, 아무 동작도 하지 않고 `newfd`를 반환합니다.
+	// - `newfd`가 **이미 열려 있는 경우**, **조용히 닫은 후에** `oldfd`를 복제합니다.
+	// - 복제된 디스크립터는 **파일 오프셋과 상태 플래그를 공유**합니다.
+	// 	- 예: `seek()`으로 하나의 파일 위치를 바꾸면, 다른 디스크립터도 같은 위치를 가리킵니다.
+	// - **`fork()` 이후에도 dup된 fd의 의미는 유지되어야 합니다.**
+}
 
-// ### 동작 규칙:
-
-// - `oldfd`가 **유효하지 않으면**, 실패하며 `1`을 반환하고, `newfd`는 **닫히지 않습니다**.
-// - `oldfd`와 `newfd`가 **같으면**, 아무 동작도 하지 않고 `newfd`를 반환합니다.
-// - `newfd`가 **이미 열려 있는 경우**, **조용히 닫은 후에** `oldfd`를 복제합니다.
-// - 복제된 디스크립터는 **파일 오프셋과 상태 플래그를 공유**합니다.
-//     - 예: `seek()`으로 하나의 파일 위치를 바꾸면, 다른 디스크립터도 같은 위치를 가리킵니다.
-// - **`fork()` 이후에도 dup된 fd의 의미는 유지되어야 합니다.**
-// }
+static void s_check_access(const char *file)
+{
+	if (file == NULL || !is_user_vaddr(file) || pml4_get_page(thread_current()->pml4, file) == NULL)
+	{
+		s_exit(-1);
+	}
+}
