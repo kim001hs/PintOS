@@ -42,6 +42,14 @@ static void s_check_buffer(const void *buffer, unsigned length);
 static void s_check_fd(int fd);
 // extra
 static int s_dup2(int oldfd, int newfd);
+<<<<<<< HEAD
+=======
+
+static void s_check_access(const char *);
+
+int process_get_file(int fd);
+void check_user(const void *uaddr);
+>>>>>>> edcd4bf (123)
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
@@ -270,8 +278,34 @@ static int s_filesize(int fd)
 
 static int s_read(int fd, void *buffer, unsigned length)
 {
-	// fd에서 buffer로 최대 size 바이트 읽음.
-	// 반환값은 실제로 읽은 바이트 수 (EOF이면 0, 실패 시 -1). fd 0이면 키보드에서 입력.
+	check_user(buffer);
+	check_user(buffer + length - 1);
+
+	int bytes_read = 0;
+
+	// 2. stdin (fd == 0)
+	if (fd == 0)
+	{
+		for (unsigned i = 0; i < length; i++)
+			((uint8_t *)buffer)[i] = input_getc();
+		return length;
+	}
+
+	// stdout 에서 read 불가
+	if (fd == 1)
+		return 0;
+
+	// 3. 파일 디스크립터에서 파일 찾기
+	struct file *f = process_get_file(fd);
+	if (f == NULL)
+		return -1;
+
+	// 4. 파일 읽기
+	lock_acquire(&filesys_lock);
+	bytes_read = file_read(f, buffer, length);
+	lock_release(&filesys_lock);
+
+	return bytes_read;
 }
 
 // write
@@ -365,6 +399,23 @@ static void s_check_fd(int fd)
 {
 	// fd 값 확인
 	if (fd < 1 || fd >= 128)
+	{
+		s_exit(-1);
+	}
+}
+
+int process_get_file(int fd)
+{
+	struct thread *t = thread_current();
+	if (fd < 2 || fd >= 128)
+		return NULL;
+	return t->fd_table[fd];
+}
+
+void check_user(const void *uaddr)
+{
+	if (uaddr == NULL || !is_user_vaddr(uaddr) ||
+		pml4_get_page(thread_current()->pml4, uaddr) == NULL)
 	{
 		s_exit(-1);
 	}
