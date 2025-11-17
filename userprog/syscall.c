@@ -276,9 +276,9 @@ static int s_filesize(int fd)
 
 static int s_read(int fd, void *buffer, unsigned length)
 {
-	check_user(buffer);
-	check_user(buffer + length - 1);
-
+	s_check_access(buffer);
+	s_check_access(buffer + length - 1);
+	s_check_fd(fd);
 	int bytes_read = 0;
 
 	// 2. stdin (fd == 0)
@@ -294,7 +294,7 @@ static int s_read(int fd, void *buffer, unsigned length)
 		return 0;
 
 	// 3. 파일 디스크립터에서 파일 찾기
-	struct file *f = process_get_file(fd);
+	struct file *f = thread_current()->fd_table[fd];
 	if (f == NULL)
 		return -1;
 
@@ -397,23 +397,6 @@ static void s_check_fd(int fd)
 {
 	// fd 값 확인
 	if (fd < 1 || fd >= 128)
-	{
-		s_exit(-1);
-	}
-}
-
-int process_get_file(int fd)
-{
-	struct thread *t = thread_current();
-	if (fd < 2 || fd >= 128)
-		return NULL;
-	return t->fd_table[fd];
-}
-
-void check_user(const void *uaddr)
-{
-	if (uaddr == NULL || !is_user_vaddr(uaddr) ||
-		pml4_get_page(thread_current()->pml4, uaddr) == NULL)
 	{
 		s_exit(-1);
 	}
