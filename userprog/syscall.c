@@ -10,7 +10,8 @@
 #include "threads/synch.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
-
+#include "userprog/process.h"
+#include <string.h>
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
 
@@ -266,12 +267,38 @@ static int s_open(const char *file)
 static int s_filesize(int fd)
 {
 	// 열려 있는 파일의 크기를 바이트 단위로 반환합니다.
+	return 373;
 }
 
 static int s_read(int fd, void *buffer, unsigned length)
 {
-	// fd에서 buffer로 최대 size 바이트 읽음.
-	// 반환값은 실제로 읽은 바이트 수 (EOF이면 0, 실패 시 -1). fd 0이면 키보드에서 입력.
+	s_check_buffer(buffer, length);
+	s_check_fd(fd);
+	int bytes_read = 0;
+
+	// 2. stdin (fd == 0)
+	if (fd == 0)
+	{
+		for (unsigned i = 0; i < length; i++)
+			((uint8_t *)buffer)[i] = input_getc();
+		return length;
+	}
+
+	// stdout 에서 read 불가
+	if (fd == 1)
+		return 0;
+
+	// 3. 파일 디스크립터에서 파일 찾기
+	struct file *f = thread_current()->fd_table[fd];
+	if (f == NULL)
+		return -1;
+
+	// 4. 파일 읽기
+	lock_acquire(&filesys_lock);
+	bytes_read = file_read(f, buffer, length);
+	lock_release(&filesys_lock);
+
+	return bytes_read;
 }
 
 // write
