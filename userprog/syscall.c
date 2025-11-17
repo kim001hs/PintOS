@@ -42,10 +42,6 @@ static void s_check_buffer(const void *buffer, unsigned length);
 static void s_check_fd(int fd);
 // extra
 static int s_dup2(int oldfd, int newfd);
-
-static void s_check_access(const char *);
-
-
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
