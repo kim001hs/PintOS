@@ -39,12 +39,12 @@ static void s_close(int fd);
 
 static void s_check_access(const char *file);
 static void s_check_buffer(const void *buffer, unsigned length);
-static void s_check_fd(int fd, bool type);
-enum
+enum fd_type
 {
-	READ,
-	WRITE
+	READ = 0,
+	WRITE = 1
 };
+static void s_check_fd(int fd, enum fd_type type);
 // extra
 static int s_dup2(int oldfd, int newfd);
 /* System call.
@@ -295,10 +295,6 @@ static int s_read(int fd, void *buffer, unsigned length)
 		return length;
 	}
 
-	// stdout 에서 read 불가
-	if (fd == 1)
-		return 0;
-
 	// 3. 파일 디스크립터에서 파일 찾기
 	struct file *f = thread_current()->fd_table[fd];
 	if (f == NULL)
@@ -399,7 +395,7 @@ static void s_check_buffer(const void *buffer, unsigned length)
 	}
 }
 
-static void s_check_fd(int fd, bool type)
+static void s_check_fd(int fd, enum fd_type type)
 {
 	if (fd < 0 || fd >= 128)
 	{
