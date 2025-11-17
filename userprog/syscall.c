@@ -302,7 +302,7 @@ static int s_write(int fd, const void *buffer, unsigned length)
 
 	// 파일에 write 하기
 	struct file *curr_file = thread_current()->fd_table[fd];
-	// 파일을 못 가지오면
+	// 파일을 못 가져오면
 	if (curr_file == NULL)
 	{
 		return -1;
