@@ -11,4 +11,5 @@ void process_exit(void);
 void process_activate(struct thread *next);
 
 char *push_argument(char **argv, int argc, void **rsp_ptr);
+struct thread *get_thread_by_tid(tid_t child_tid);
 #endif /* userprog/process.h */

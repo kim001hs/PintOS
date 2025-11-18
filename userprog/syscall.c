@@ -12,6 +12,7 @@
 #include "filesys/filesys.h"
 #include "userprog/process.h"
 #include <string.h>
+#include "threads/palloc.h"
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
 
@@ -25,7 +26,7 @@ static struct lock filesys_lock;
 
 static void s_halt(void) NO_RETURN;
 static void s_exit(int status) NO_RETURN;
-static int s_fork(const char *thread_name);
+static int s_fork(const char *thread_name, struct intr_frame *f);
 static int s_exec(const char *file);
 static int s_wait(pid_t);
 static bool s_create(const char *file, unsigned initial_size);
@@ -89,7 +90,7 @@ void syscall_handler(struct intr_frame *f UNUSED)
 		s_exit(f->R.rdi);
 		break;
 	case SYS_FORK:
-		f->R.rax = s_fork(f->R.rdi);
+		f->R.rax = s_fork(f->R.rdi, f);
 		break;
 	case SYS_EXEC:
 		f->R.rax = s_exec(f->R.rdi);
@@ -154,6 +155,7 @@ void syscall_handler(struct intr_frame *f UNUSED)
 		thread_exit();
 		break;
 	}
+	thread_exit();
 }
 
 static void s_halt(void)
@@ -170,18 +172,23 @@ static void s_exit(int status)
 	thread_exit();
 }
 
-static int s_fork(const char *thread_name)
+static int s_fork(const char *thread_name, struct intr_frame *f)
 {
-	// 	현재 프로세스를 복제하여 새 자식 프로세스를 생성합니다. 이름은 `thread_name`을 따릅니다. 다음 사항을 만족해야 합니다:
+	s_check_access(thread_name);
 
-	// - 복제 시 **callee-saved 레지스터**들만 복사하면 됩니다: `%rbx`, `%rsp`, `%rbp`, `%r12`~`%r15`
-	// - 반환값은 자식 프로세스에서 0, 부모 프로세스에서는 자식의 pid
-	// - **파일 디스크립터 및 가상 메모리 공간 등 리소스를 복제**해야 합니다
-	// - 부모는 자식이 자원을 성공적으로 복제했는지 확인 전까지 `fork()`에서 반환되면 안 됩니다
-	// - 복제에 실패한 경우, 부모는 `TID_ERROR`를 반환
+	tid_t child_tid = process_fork(thread_name, f);
 
-	// `threads/mmu.c`에 있는 `pml4_for_each()`를 사용해 가상 주소 공간 전체를 복사할 수 있습니다. `pte_for_each_func`에 해당하는 함수를 채워야 합니다.
-	// return process_fork(thread_name, thread_current()->tf); // 맞는지 몰?루
+	if (child_tid == TID_ERROR)
+		return TID_ERROR;
+
+	struct thread *child = get_thread_by_tid(child_tid);
+
+	if (child == NULL)
+		return TID_ERROR;
+
+	sema_down(&child->fork_sema);
+
+	return (child->fork_success ? child_tid : TID_ERROR);
 }
 
 static int s_exec(const char *file)
@@ -194,6 +201,8 @@ static int s_exec(const char *file)
 	strlcpy(fn_copy, file, PGSIZE);
 
 	int res = process_exec(fn_copy);
+	if (res < 0)
+		s_exit(-1);
 	// palloc_free_page(fn_copy); free는 process_exec안에서
 	return res;
 }
@@ -230,7 +239,8 @@ static bool s_create(const char *file, unsigned initial_size)
 
 static bool s_remove(const char *file)
 {
-	// 파일을 삭제합니다. 열려 있든 닫혀 있든 상관없이 삭제 가능. 성공 시 true.
+	s_check_access(file);
+	return filesys_remove(file);
 }
 
 static int s_open(const char *file)

@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -105,10 +106,8 @@ struct thread
 	int priority;			   /* 현재 스레드 우선순위 */
 
 	/* thread.c와 synch.c에서 공유되는 요소 */
-	struct list_elem elem;	   /* 리스트 요소.
-								   sleeping_list, ready_list, waiter_list 등 여러 리스트에 속할 수 있음 */
+	struct list_elem elem;	   /* 리스트 요소. sleeping_list, ready_list, waiter_list 등 여러 리스트에 속할 수 있음 */
 	struct list_elem all_elem; /* 모든 스레드가 포함된 all_list의 리스트 요소 */
-
 	/* 새로 추가된 필드 */
 	int64_t wakeup_tick;	   /* 스레드가 깨어날 시점(틱 단위) */
 	int original_priority;	   /* 우선순위 기부 전 원래 스레드 우선순위 */
@@ -119,7 +118,11 @@ struct thread
 	// userprog
 	int exit_status;
 	struct file *fd_table[128];
-
+	struct semaphore fork_sema;
+	bool fork_success;
+	struct thread *parent;
+	struct list child_list;
+	struct list_elem child_elem;
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4; /* Page map level 4 */
