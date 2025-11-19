@@ -267,6 +267,12 @@ void process_exit(void)
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
+	// 정상적으로 실행했다면
+	if (curr->running_file != NULL)
+	{
+		file_close(curr->running_file);
+		curr->running_file = NULL;
+	}
 
 	process_cleanup();
 }
@@ -473,12 +479,13 @@ load(const char *file_name, struct intr_frame *if_)
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
-
+	// 파일이 읽기는거 방지 - process_exit에서 다시 write 가능
+	file_deny_write(file);
+	t->running_file = file;
 	success = true;
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	file_close(file);
 	return success;
 }
 

@@ -117,8 +117,9 @@ struct thread
 	int nice;				   /* 나이스 값(스케줄링에서 사용) */
 	int recent_cpu;			   /* 최근 CPU 사용량(스케줄링 계산용) */
 	// userprog
-	int exit_status;
-	struct file *fd_table[128];
+	int exit_status;			/* 프로세스의 종료 상태 */
+	struct file *fd_table[128]; /* 이 스레드가 열어둔 파일 디스크립터 테이블 */
+	struct file *running_file;	/* 이 스레드가 실행 중인 실행 파일(executable)을 가리키는 포인터 (load()시 저장) */
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
