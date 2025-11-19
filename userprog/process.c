@@ -300,7 +300,6 @@ void process_exit(void)
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
 
-	printf("%s: exit(%d)\n", thread_name(), curr->exit_status);
 	sema_up(&curr->wait_sema);
 	process_cleanup();
 }
