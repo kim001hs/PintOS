@@ -184,7 +184,28 @@ static void __do_fork(void *aux)
 #endif
 
 	/* 3. Duplicate file descriptor table */
-	memcpy(current->fd_table, parent->fd_table, sizeof(current->fd_table));
+	// memcpy(current->fd_table, parent->fd_table, sizeof(current->fd_table));
+	for (int fd = 0; fd < 128; fd++)
+	{
+		struct file *f = parent->fd_table[fd];
+
+		if (f == NULL)
+		{
+			current->fd_table[fd] = NULL;
+			continue;
+		}
+
+		if (fd == 0 || fd == 1)
+		{
+			/* stdin(0) and stdout(1): shared */
+			current->fd_table[fd] = f;
+		}
+		else
+		{
+			/* duplicate file for the child */
+			current->fd_table[fd] = file_duplicate(f);
+		}
+	}
 
 	sema_up(&current->fork_sema);
 	/* Finally, switch to the newly created process. */
@@ -522,7 +543,7 @@ load(const char *file_name, struct intr_frame *if_)
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	file_close(file);
+	// file_close(file);
 	return success;
 }
 
