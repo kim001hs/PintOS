@@ -41,6 +41,7 @@ process_init(void)
 	current->fd_table[STDOUT_FILENO] = 1;
 	current->fork_success = false;
 	// list_init(&current->child_list);
+	current->waited = false;
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.

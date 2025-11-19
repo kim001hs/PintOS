@@ -214,12 +214,12 @@ static int s_wait(int tid)
 	struct thread *child = get_thread_by_tid(tid);
 	int exit_code = -1;
 
-	if (child == NULL || !is_my_child(cur, child))
+	if (child == NULL || cur->waited)
 	{
 		return -1;
 	}
 	sema_down(&child->wait_sema);
-
+	cur->waited = true;
 	exit_code = child->exit_status;
 
 	return exit_code;
@@ -411,23 +411,6 @@ static void s_check_fd(int fd, enum fd_type type)
 	{
 		s_exit(-1);
 	}
-}
-
-static int is_my_child(struct thread *parent, struct thread *child)
-{
-	struct list_elem *e;
-
-	for (e = list_begin(&parent->child_list); e != list_end(&parent->child_list); e = list_next(e))
-	{
-		struct thread *t = list_entry(e, struct thread, child_elem);
-		if (t == child)
-			return 1;
-
-		if (is_my_child(t, child))
-			return 1;
-	}
-
-	return 0;
 }
 
 void free_child_resources(struct thread *child_thread)
