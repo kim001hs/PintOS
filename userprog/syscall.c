@@ -42,12 +42,10 @@ static void s_close(int fd);
 static void s_check_access(const char *file);
 static void s_check_buffer(const void *buffer, unsigned length);
 static int is_my_child(struct thread *parent, struct thread *child);
-void free_child_resources(struct thread *child_thread);
 enum fd_type
 {
 	READ = 0,
-	WRITE = 1,
-	NEITHER = 2,
+	WRITE = 1
 };
 static void s_check_fd(int fd, enum fd_type type);
 // extra
@@ -214,15 +212,14 @@ static int s_wait(int tid)
 	struct thread *cur = thread_current();
 	struct thread *child = get_thread_by_tid(tid);
 	int exit_code = -1;
-
-	if (child == NULL || cur->waited)
+	if (child == NULL || child->waited)
 	{
 		return -1;
 	}
 	sema_down(&child->wait_sema);
-	cur->waited = true;
+	child->waited = true;
 	exit_code = child->exit_status;
-
+	sema_up(&child->exit_sema);
 	return exit_code;
 }
 
@@ -350,58 +347,19 @@ static int s_write(int fd, const void *buffer, unsigned length)
 
 static void s_seek(int fd, unsigned position)
 {
-	s_check_fd(fd, NEITHER);
-	// stdin(0)과 stdout(1)은 seek 의미가 없으므로, 오류를 내지 않고 그대로 무시
-	if (fd == 0 || fd == 1)
-	{
-		return;
-	}
-	struct file *curr_file = thread_current()->fd_table[fd];
-	if (curr_file == NULL)
-	{
-		s_exit(-1);
-	}
-	lock_acquire(&filesys_lock);
-	file_seek(curr_file, position);
-	lock_release(&filesys_lock);
+	// 	다음 읽기/쓰기 위치를 `position`으로 변경. 파일 끝을 넘어가도 오류 아님.
+
+	// > 다만 Project 4 이전에는 파일 길이가 고정이므로, 실제로는 오류가 발생할 수 있음.
 }
 
 static unsigned s_tell(int fd)
 {
-	s_check_fd(fd, NEITHER);
-	if (fd == 0 || fd == 1)
-	{
-		return 0;
-	}
-	struct file *curr_file = thread_current()->fd_table[fd];
-	if (curr_file == NULL)
-	{
-		s_exit(-1);
-	}
-	lock_acquire(&filesys_lock);
-	off_t next_byte = file_tell(curr_file);
-	lock_release(&filesys_lock);
-	return (unsigned)next_byte;
+	// 현재 fd에서 다음 읽기/쓰기가 이루어질 위치(바이트 단위)를 반환.
 }
 
 static void s_close(int fd)
 {
-	s_check_fd(fd, NEITHER);
-	if (fd == 0 || fd == 1)
-	{
-		return;
-	}
-	struct file *curr_file = thread_current()->fd_table[fd];
-	if (curr_file == NULL)
-	{
-		s_exit(-1);
-	}
-	lock_acquire(&filesys_lock);
-	file_close(curr_file);
-	lock_release(&filesys_lock);
-
-	thread_current()->fd_table[fd] = NULL;
-	return;
+	// 파일 디스크립터 fd를 닫습니다. 프로세스가 종료되면 모든 fd는 자동으로 닫힙니다.
 }
 
 static int s_dup2(int oldfd, int newfd)
@@ -452,21 +410,3 @@ static void s_check_fd(int fd, enum fd_type type)
 		s_exit(-1);
 	}
 }
-
-void free_child_resources(struct thread *child_thread)
-{
-	list_remove(&child_thread->child_elem);
-	palloc_free_page(child_thread);
-}
-
-extern struct list all_list;
-
-/* Lock for all_list synchronization, if necessary. */
-// extern struct lock all_list_lock;
-
-/**
- * @brief 스레드 ID(tid)를 사용하여 해당 스레드 구조체를 찾습니다.
- * * @param tid 찾고자 하는 스레드의 ID.
- * @return struct thread* 스레드를 찾으면 해당 스레드 구조체의 포인터를,
- * 찾지 못하면 NULL을 반환합니다.
- */

@@ -123,6 +123,7 @@ struct thread
 	struct file *fd_table[128];
 	struct semaphore fork_sema;
 	struct semaphore wait_sema;
+	struct semaphore exit_sema;
 	bool waited;
 	bool fork_success;
 	struct list child_list;

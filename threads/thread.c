@@ -214,6 +214,7 @@ tid_t thread_create(const char *name, int priority,
 		return tid;
 	sema_init(&t->fork_sema, 0);
 	sema_init(&t->wait_sema, 0);
+	sema_init(&t->exit_sema, 0);
 	if (function)
 	{
 		list_push_back(&thread_current()->child_list, &t->child_elem);
