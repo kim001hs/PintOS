@@ -115,6 +115,9 @@ struct thread
 	struct lock *waiting_lock; /* 현재 스레드가 기다리고 있는 락 */
 	int nice;				   /* 나이스 값(스케줄링에서 사용) */
 	int recent_cpu;			   /* 최근 CPU 사용량(스케줄링 계산용) */
+#ifdef USERPROG
+	/* Owned by userprog/process.c. */
+	uint64_t *pml4; /* Page map level 4 */
 	// userprog
 	int exit_status;
 	struct file *fd_table[128];
@@ -124,9 +127,6 @@ struct thread
 	bool fork_success;
 	struct list child_list;
 	struct list_elem child_elem;
-#ifdef USERPROG
-	/* Owned by userprog/process.c. */
-	uint64_t *pml4; /* Page map level 4 */
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
