@@ -41,6 +41,8 @@ static void s_close(int fd);
 
 static void s_check_access(const char *file);
 static void s_check_buffer(const void *buffer, unsigned length);
+static int is_my_child(struct thread *parent, struct thread *child);
+void free_child_resources(struct thread *child_thread);
 enum fd_type
 {
 	READ = 0,
@@ -181,12 +183,13 @@ static int s_fork(const char *thread_name, struct intr_frame *f)
 
 	struct thread *child = get_thread_by_tid(child_tid);
 
+	struct thread *cur = thread_current();
 	if (child == NULL)
 		return TID_ERROR;
 
 	sema_down(&child->fork_sema);
 
-	return (child->fork_success ? child_tid : TID_ERROR);
+	return child_tid;
 }
 
 static int s_exec(const char *file)
@@ -201,31 +204,26 @@ static int s_exec(const char *file)
 	int res = process_exec(fn_copy);
 	if (res < 0)
 		s_exit(-1);
-	// palloc_free_page(fn_copy); free는 process_exec안에서
 	return res;
 }
 
 static int s_wait(int tid)
 {
-	// 	자식 프로세스 `pid`의 종료를 기다리고 종료 코드를 반환합니다:
+	struct thread *cur = thread_current();
+	struct thread *child = get_thread_by_tid(tid);
+	int exit_code = -1;
 
-	// - 종료되지 않았다면 종료될 때까지 대기
-	// - `exit()`로 종료했다면 해당 status 반환
-	// - 커널에 의해 종료되었으면 `1` 반환
+	if (child == NULL || !is_my_child(cur, child))
+	{
+		return -1;
+	}
+	sema_down(&child->wait_sema);
 
-	// 다음 조건 중 하나라도 만족하면 즉시 `-1`을 반환해야 합니다:
+	exit_code = child->exit_status;
 
-	// - `pid`는 현재 프로세스의 **직계 자식**이 아님
-	// - 이미 `wait(pid)`가 호출된 적이 있음
+	free_child_resources(child);
 
-	// 부모 프로세스는 자식을 어떤 순서로든 기다릴 수 있고, 기다리지 않고 먼저 종료될 수도 있습니다. **자식 프로세스는 부모가 기다리든 말든 자원을 반드시 정리해야 합니다**.
-
-	// **Pintos 전체 종료는 최초 프로세스가 종료되어야만 발생해야 합니다.** 이를 위해 기본적으로 `main()` 함수에서 `process_wait()`가 호출됩니다. `wait()` 시스템 콜은 이를 활용하여 구현해야 합니다.
-
-	// > wait()는 이 프로젝트에서 가장 구현이 복잡한 시스템 콜입니다.
-	// >
-	// process_wait(tid);
-	return process_wait(tid);
+	return exit_code;
 }
 
 static bool s_create(const char *file, unsigned initial_size)
@@ -415,3 +413,38 @@ static void s_check_fd(int fd, enum fd_type type)
 		s_exit(-1);
 	}
 }
+
+static int is_my_child(struct thread *parent, struct thread *child)
+{
+	struct list_elem *e;
+
+	for (e = list_begin(&parent->child_list); e != list_end(&parent->child_list); e = list_next(e))
+	{
+		struct thread *t = list_entry(e, struct thread, child_elem);
+		if (t == child)
+			return 1;
+
+		if (is_my_child(t, child))
+			return 1;
+	}
+
+	return 0;
+}
+
+void free_child_resources(struct thread *child_thread)
+{
+	list_remove(&child_thread->child_elem);
+	palloc_free_page(child_thread);
+}
+
+extern struct list all_list;
+
+/* Lock for all_list synchronization, if necessary. */
+// extern struct lock all_list_lock;
+
+/**
+ * @brief 스레드 ID(tid)를 사용하여 해당 스레드 구조체를 찾습니다.
+ * * @param tid 찾고자 하는 스레드의 ID.
+ * @return struct thread* 스레드를 찾으면 해당 스레드 구조체의 포인터를,
+ * 찾지 못하면 NULL을 반환합니다.
+ */

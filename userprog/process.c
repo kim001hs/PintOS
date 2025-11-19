@@ -35,13 +35,12 @@ static void
 process_init(void)
 {
 	struct thread *current = thread_current();
-	sema_init(&current->fork_sema, 0);
 	current->exit_status = 0;
 	memset(current->fd_table, 0, sizeof(current->fd_table));
 	current->fd_table[STDIN_FILENO] = 1;
 	current->fd_table[STDOUT_FILENO] = 1;
 	current->fork_success = false;
-	list_init(&current->child_list);
+	// list_init(&current->child_list);
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -88,7 +87,6 @@ initd(void *f_name)
  * TID_ERROR if the thread cannot be created. */
 tid_t process_fork(const char *name, struct intr_frame *if_)
 {
-	/* Clone current thread to new thread.*/
 	return thread_create(name, PRI_DEFAULT, __do_fork, if_);
 }
 
@@ -153,15 +151,14 @@ duplicate_pte(uint64_t *pte, void *va, void *aux)
  * Hint) parent->tf does not hold the userland context of the process.
  *       That is, you are required to pass second argument of process_fork to
  *       this function. */
-static void
-__do_fork(void *aux)
+static void __do_fork(void *aux)
 {
 	struct intr_frame if_;
 	struct thread *current = thread_current();
 	struct thread *parent = current->parent;
-	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
 	struct intr_frame *parent_if = (struct intr_frame *)aux;
 	bool succ = true;
+
 	process_init();
 
 	/* 1. Read the cpu context to local stack. */
@@ -173,6 +170,7 @@ __do_fork(void *aux)
 		goto error;
 
 	process_activate(current);
+
 #ifdef VM
 	supplemental_page_table_init(&current->spt);
 	if (!supplemental_page_table_copy(&current->spt, &parent->spt))
@@ -182,12 +180,8 @@ __do_fork(void *aux)
 		goto error;
 #endif
 
-	/* TODO: Your code goes here.
-	 * TODO: Hint) To duplicate the file object, use `file_duplicate`
-	 * TODO:       in include/filesys/file.h. Note that parent should not return
-	 * TODO:       from the fork() until this function successfully duplicates
-	 * TODO:       the resources of parent.*/
-	memcpy(current->fd_table, parent->fd_table, sizeof(parent->fd_table));
+	/* 3. Duplicate file descriptor table */
+	memcpy(current->fd_table, parent->fd_table, sizeof(current->fd_table));
 
 	/* Finally, switch to the newly created process. */
 	if (succ)
@@ -305,11 +299,15 @@ void process_exit(void)
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
+
 	printf("%s: exit(%d)\n", thread_name(), curr->exit_status);
+	if (curr->parent != NULL)
+	{
+		sema_up(&curr->wait_sema);
+	}
 	process_cleanup();
 }
 
-/* Free the current process's resources. */
 static void
 process_cleanup(void)
 {
@@ -335,6 +333,16 @@ process_cleanup(void)
 		curr->pml4 = NULL;
 		pml4_activate(NULL);
 		pml4_destroy(pml4);
+	}
+	int fd;
+	for (fd = 2; fd < 128; fd++)
+	{ // 0은 표준 입력, 1은 표준 출력, 2는 표준 에러 출력
+		struct file *f = curr->fd_table[fd];
+		if (f != NULL)
+		{
+			file_close(f);			   // 열린 파일을 닫음
+			curr->fd_table[fd] = NULL; // 파일 디스크립터를 NULL로 설정
+		}
 	}
 }
 
