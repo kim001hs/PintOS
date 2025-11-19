@@ -10,7 +10,9 @@
 #include "threads/synch.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
-
+#include "userprog/process.h"
+#include <string.h>
+#include "threads/palloc.h"
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
 
@@ -24,7 +26,7 @@ static struct lock filesys_lock;
 
 static void s_halt(void) NO_RETURN;
 static void s_exit(int status) NO_RETURN;
-static int s_fork(const char *thread_name);
+static int s_fork(const char *thread_name, struct intr_frame *f);
 static int s_exec(const char *file);
 static int s_wait(pid_t);
 static bool s_create(const char *file, unsigned initial_size);
@@ -39,10 +41,12 @@ static void s_close(int fd);
 
 static void s_check_access(const char *file);
 static void s_check_buffer(const void *buffer, unsigned length);
+static int is_my_child(struct thread *parent, struct thread *child);
 enum fd_type
 {
 	READ = 0,
-	WRITE = 1
+	WRITE = 1,
+	NEITHER = 2,
 };
 static void s_check_fd(int fd, enum fd_type type);
 // extra
@@ -88,7 +92,7 @@ void syscall_handler(struct intr_frame *f UNUSED)
 		s_exit(f->R.rdi);
 		break;
 	case SYS_FORK:
-		f->R.rax = s_fork(f->R.rdi);
+		f->R.rax = s_fork(f->R.rdi, f);
 		break;
 	case SYS_EXEC:
 		f->R.rax = s_exec(f->R.rdi);
@@ -169,18 +173,24 @@ static void s_exit(int status)
 	thread_exit();
 }
 
-static int s_fork(const char *thread_name)
+static int s_fork(const char *thread_name, struct intr_frame *f)
 {
-	// 	현재 프로세스를 복제하여 새 자식 프로세스를 생성합니다. 이름은 `thread_name`을 따릅니다. 다음 사항을 만족해야 합니다:
+	s_check_access(thread_name);
 
-	// - 복제 시 **callee-saved 레지스터**들만 복사하면 됩니다: `%rbx`, `%rsp`, `%rbp`, `%r12`~`%r15`
-	// - 반환값은 자식 프로세스에서 0, 부모 프로세스에서는 자식의 pid
-	// - **파일 디스크립터 및 가상 메모리 공간 등 리소스를 복제**해야 합니다
-	// - 부모는 자식이 자원을 성공적으로 복제했는지 확인 전까지 `fork()`에서 반환되면 안 됩니다
-	// - 복제에 실패한 경우, 부모는 `TID_ERROR`를 반환
+	tid_t child_tid = process_fork(thread_name, f);
 
-	// `threads/mmu.c`에 있는 `pml4_for_each()`를 사용해 가상 주소 공간 전체를 복사할 수 있습니다. `pte_for_each_func`에 해당하는 함수를 채워야 합니다.
-	// return process_fork(thread_name, thread_current()->tf); // 맞는지 몰?루
+	if (child_tid == TID_ERROR)
+		return TID_ERROR;
+
+	struct thread *child = get_thread_by_tid(child_tid);
+
+	struct thread *cur = thread_current();
+	if (child == NULL)
+		return TID_ERROR;
+
+	sema_down(&child->fork_sema);
+
+	return child_tid;
 }
 
 static int s_exec(const char *file)
@@ -193,31 +203,25 @@ static int s_exec(const char *file)
 	strlcpy(fn_copy, file, PGSIZE);
 
 	int res = process_exec(fn_copy);
-	// palloc_free_page(fn_copy); free는 process_exec안에서
+	if (res < 0)
+		s_exit(-1);
 	return res;
 }
 
 static int s_wait(int tid)
 {
-	// 	자식 프로세스 `pid`의 종료를 기다리고 종료 코드를 반환합니다:
-
-	// - 종료되지 않았다면 종료될 때까지 대기
-	// - `exit()`로 종료했다면 해당 status 반환
-	// - 커널에 의해 종료되었으면 `1` 반환
-
-	// 다음 조건 중 하나라도 만족하면 즉시 `-1`을 반환해야 합니다:
-
-	// - `pid`는 현재 프로세스의 **직계 자식**이 아님
-	// - 이미 `wait(pid)`가 호출된 적이 있음
-
-	// 부모 프로세스는 자식을 어떤 순서로든 기다릴 수 있고, 기다리지 않고 먼저 종료될 수도 있습니다. **자식 프로세스는 부모가 기다리든 말든 자원을 반드시 정리해야 합니다**.
-
-	// **Pintos 전체 종료는 최초 프로세스가 종료되어야만 발생해야 합니다.** 이를 위해 기본적으로 `main()` 함수에서 `process_wait()`가 호출됩니다. `wait()` 시스템 콜은 이를 활용하여 구현해야 합니다.
-
-	// > wait()는 이 프로젝트에서 가장 구현이 복잡한 시스템 콜입니다.
-	// >
-	// process_wait(tid);
-	return process_wait(tid);
+	struct thread *cur = thread_current();
+	struct thread *child = get_thread_by_tid(tid);
+	int exit_code = -1;
+	if (child == NULL || child->waited)
+	{
+		return -1;
+	}
+	sema_down(&child->wait_sema);
+	child->waited = true;
+	exit_code = child->exit_status;
+	sema_up(&child->exit_sema);
+	return exit_code;
 }
 
 static bool s_create(const char *file, unsigned initial_size)
@@ -229,7 +233,8 @@ static bool s_create(const char *file, unsigned initial_size)
 
 static bool s_remove(const char *file)
 {
-	// 파일을 삭제합니다. 열려 있든 닫혀 있든 상관없이 삭제 가능. 성공 시 true.
+	s_check_access(file);
+	return filesys_remove(file);
 }
 
 static int s_open(const char *file)
@@ -343,19 +348,58 @@ static int s_write(int fd, const void *buffer, unsigned length)
 
 static void s_seek(int fd, unsigned position)
 {
-	// 	다음 읽기/쓰기 위치를 `position`으로 변경. 파일 끝을 넘어가도 오류 아님.
-
-	// > 다만 Project 4 이전에는 파일 길이가 고정이므로, 실제로는 오류가 발생할 수 있음.
+	s_check_fd(fd, NEITHER);
+	// stdin(0)과 stdout(1)은 seek 의미가 없으므로, 오류를 내지 않고 그대로 무시
+	if (fd == 0 || fd == 1)
+	{
+		return;
+	}
+	struct file *curr_file = thread_current()->fd_table[fd];
+	if (curr_file == NULL)
+	{
+		s_exit(-1);
+	}
+	lock_acquire(&filesys_lock);
+	file_seek(curr_file, position);
+	lock_release(&filesys_lock);
 }
 
 static unsigned s_tell(int fd)
 {
-	// 현재 fd에서 다음 읽기/쓰기가 이루어질 위치(바이트 단위)를 반환.
+	s_check_fd(fd, NEITHER);
+	if (fd == 0 || fd == 1)
+	{
+		return 0;
+	}
+	struct file *curr_file = thread_current()->fd_table[fd];
+	if (curr_file == NULL)
+	{
+		s_exit(-1);
+	}
+	lock_acquire(&filesys_lock);
+	off_t next_byte = file_tell(curr_file);
+	lock_release(&filesys_lock);
+	return (unsigned)next_byte;
 }
 
 static void s_close(int fd)
 {
-	// 파일 디스크립터 fd를 닫습니다. 프로세스가 종료되면 모든 fd는 자동으로 닫힙니다.
+	s_check_fd(fd, NEITHER);
+	if (fd == 0 || fd == 1)
+	{
+		return;
+	}
+	struct file *curr_file = thread_current()->fd_table[fd];
+	if (curr_file == NULL)
+	{
+		s_exit(-1);
+	}
+	lock_acquire(&filesys_lock);
+	file_close(curr_file);
+	lock_release(&filesys_lock);
+
+	thread_current()->fd_table[fd] = NULL;
+	return;
 }
 
 static int s_dup2(int oldfd, int newfd)

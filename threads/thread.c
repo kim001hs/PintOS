@@ -210,7 +210,15 @@ tid_t thread_create(const char *name, int priority,
 	t->tf.ss = SEL_KDSEG;
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
-
+	if (t == initial_thread)
+		return tid;
+	sema_init(&t->fork_sema, 0);
+	sema_init(&t->wait_sema, 0);
+	sema_init(&t->exit_sema, 0);
+	if (function)
+	{
+		list_push_back(&thread_current()->child_list, &t->child_elem);
+	}
 	thread_unblock(t);
 	preempt_priority();
 	return tid;
@@ -538,6 +546,7 @@ init_thread(struct thread *t, const char *name, int priority)
 	t->wakeup_tick = 0;
 	t->magic = THREAD_MAGIC;
 	list_init(&t->locks_hold);
+	list_init(&t->child_list);
 	t->waiting_lock = NULL;
 	if (thread_mlfqs && t != initial_thread)
 	{
