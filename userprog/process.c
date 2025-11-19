@@ -322,7 +322,16 @@ void process_exit(void)
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
-
+	int fd;
+	for (fd = 2; fd < 128; fd++)
+	{ // 0은 표준 입력, 1은 표준 출력, 2는 표준 에러 출력
+		struct file *f = curr->fd_table[fd];
+		if (f != NULL)
+		{
+			file_close(f);			   // 열린 파일을 닫음
+			curr->fd_table[fd] = NULL; // 파일 디스크립터를 NULL로 설정
+		}
+	}
 	sema_up(&curr->wait_sema);
 	process_cleanup();
 }
@@ -352,16 +361,6 @@ process_cleanup(void)
 		curr->pml4 = NULL;
 		pml4_activate(NULL);
 		pml4_destroy(pml4);
-	}
-	int fd;
-	for (fd = 2; fd < 128; fd++)
-	{ // 0은 표준 입력, 1은 표준 출력, 2는 표준 에러 출력
-		struct file *f = curr->fd_table[fd];
-		if (f != NULL)
-		{
-			file_close(f);			   // 열린 파일을 닫음
-			curr->fd_table[fd] = NULL; // 파일 디스크립터를 NULL로 설정
-		}
 	}
 }
 
@@ -543,7 +542,7 @@ load(const char *file_name, struct intr_frame *if_)
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	// file_close(file);
+	file_close(file);
 	return success;
 }
 
