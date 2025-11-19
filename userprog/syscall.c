@@ -155,7 +155,6 @@ void syscall_handler(struct intr_frame *f UNUSED)
 		thread_exit();
 		break;
 	}
-	thread_exit();
 }
 
 static void s_halt(void)
