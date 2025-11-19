@@ -333,6 +333,12 @@ void process_exit(void)
 			curr->fd_table[fd] = NULL; // 파일 디스크립터를 NULL로 설정
 		}
 	}
+	// 정상적으로 실행했다면
+	if (curr->running_file != NULL)
+	{
+		file_close(curr->running_file);
+		curr->running_file = NULL;
+	}
 	sema_up(&curr->wait_sema);
 	sema_down(&curr->exit_sema);
 	process_cleanup();
@@ -540,12 +546,12 @@ load(const char *file_name, struct intr_frame *if_)
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
-
+	file_deny_write(file);
+	t->running_file = file;
 	success = true;
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	file_close(file);
 	return success;
 }
 

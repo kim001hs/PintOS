@@ -128,6 +128,7 @@ struct thread
 	bool fork_success;
 	struct list child_list;
 	struct list_elem child_elem;
+	struct file *running_file; /* 이 스레드가 실행 중인 실행 파일(executable)을 가리키는 포인터 (load()시 저장) */
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */

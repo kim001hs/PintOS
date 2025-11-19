@@ -45,7 +45,8 @@ static int is_my_child(struct thread *parent, struct thread *child);
 enum fd_type
 {
 	READ = 0,
-	WRITE = 1
+	WRITE = 1,
+	NEITHER = 2,
 };
 static void s_check_fd(int fd, enum fd_type type);
 // extra
@@ -347,19 +348,58 @@ static int s_write(int fd, const void *buffer, unsigned length)
 
 static void s_seek(int fd, unsigned position)
 {
-	// 	다음 읽기/쓰기 위치를 `position`으로 변경. 파일 끝을 넘어가도 오류 아님.
-
-	// > 다만 Project 4 이전에는 파일 길이가 고정이므로, 실제로는 오류가 발생할 수 있음.
+	s_check_fd(fd, NEITHER);
+	// stdin(0)과 stdout(1)은 seek 의미가 없으므로, 오류를 내지 않고 그대로 무시
+	if (fd == 0 || fd == 1)
+	{
+		return;
+	}
+	struct file *curr_file = thread_current()->fd_table[fd];
+	if (curr_file == NULL)
+	{
+		s_exit(-1);
+	}
+	lock_acquire(&filesys_lock);
+	file_seek(curr_file, position);
+	lock_release(&filesys_lock);
 }
 
 static unsigned s_tell(int fd)
 {
-	// 현재 fd에서 다음 읽기/쓰기가 이루어질 위치(바이트 단위)를 반환.
+	s_check_fd(fd, NEITHER);
+	if (fd == 0 || fd == 1)
+	{
+		return 0;
+	}
+	struct file *curr_file = thread_current()->fd_table[fd];
+	if (curr_file == NULL)
+	{
+		s_exit(-1);
+	}
+	lock_acquire(&filesys_lock);
+	off_t next_byte = file_tell(curr_file);
+	lock_release(&filesys_lock);
+	return (unsigned)next_byte;
 }
 
 static void s_close(int fd)
 {
-	// 파일 디스크립터 fd를 닫습니다. 프로세스가 종료되면 모든 fd는 자동으로 닫힙니다.
+	s_check_fd(fd, NEITHER);
+	if (fd == 0 || fd == 1)
+	{
+		return;
+	}
+	struct file *curr_file = thread_current()->fd_table[fd];
+	if (curr_file == NULL)
+	{
+		s_exit(-1);
+	}
+	lock_acquire(&filesys_lock);
+	file_close(curr_file);
+	lock_release(&filesys_lock);
+
+	thread_current()->fd_table[fd] = NULL;
+	return;
 }
 
 static int s_dup2(int oldfd, int newfd)
