@@ -121,7 +121,6 @@ struct thread
 	struct semaphore fork_sema;
 	struct semaphore wait_sema;
 	bool fork_success;
-	struct thread *parent;
 	struct list child_list;
 	struct list_elem child_elem;
 #ifdef USERPROG

@@ -27,7 +27,7 @@
 static void process_cleanup(void);
 static bool load(const char *file_name, struct intr_frame *if_);
 static void initd(void *f_name);
-static void __do_fork(void *);
+static void __do_fork(void *aux);
 static int64_t get_user(const uint8_t *uaddr);
 static bool put_user(uint8_t *udst, uint8_t byte);
 /* General process initializer for initd and other process. */
@@ -87,7 +87,10 @@ initd(void *f_name)
  * TID_ERROR if the thread cannot be created. */
 tid_t process_fork(const char *name, struct intr_frame *if_)
 {
-	return thread_create(name, PRI_DEFAULT, __do_fork, if_);
+	struct aux *aux = (struct aux *)malloc(sizeof(struct aux));
+	aux->thread = thread_current();
+	aux->if_ = if_;
+	return thread_create(name, PRI_DEFAULT, __do_fork, aux);
 }
 
 struct thread *get_thread_by_tid(tid_t child_tid)
@@ -155,8 +158,8 @@ static void __do_fork(void *aux)
 {
 	struct intr_frame if_;
 	struct thread *current = thread_current();
-	struct thread *parent = current->parent;
-	struct intr_frame *parent_if = (struct intr_frame *)aux;
+	struct thread *parent = ((struct aux *)aux)->thread;
+	struct intr_frame *parent_if = ((struct aux *)aux)->if_;
 	bool succ = true;
 
 	process_init();
@@ -183,17 +186,16 @@ static void __do_fork(void *aux)
 	/* 3. Duplicate file descriptor table */
 	memcpy(current->fd_table, parent->fd_table, sizeof(current->fd_table));
 
+	sema_up(&current->fork_sema);
 	/* Finally, switch to the newly created process. */
 	if (succ)
 	{
 		if_.R.rax = 0; // 자식 프로세스는 0을 반환
 		current->fork_success = true;
-		sema_up(&current->fork_sema);
 		do_iret(&if_);
 	}
 error:
 	current->fork_success = false;
-	sema_up(&current->fork_sema);
 	thread_exit();
 }
 
