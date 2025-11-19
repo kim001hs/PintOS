@@ -221,8 +221,6 @@ static int s_wait(int tid)
 
 	exit_code = child->exit_status;
 
-	free_child_resources(child);
-
 	return exit_code;
 }
 

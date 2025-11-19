@@ -301,10 +301,7 @@ void process_exit(void)
 	 * TODO: We recommend you to implement process resource cleanup here. */
 
 	printf("%s: exit(%d)\n", thread_name(), curr->exit_status);
-	if (curr->parent != NULL)
-	{
-		sema_up(&curr->wait_sema);
-	}
+	sema_up(&curr->wait_sema);
 	process_cleanup();
 }
 

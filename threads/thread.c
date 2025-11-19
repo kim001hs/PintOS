@@ -210,6 +210,8 @@ tid_t thread_create(const char *name, int priority,
 	t->tf.ss = SEL_KDSEG;
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
+	if (t == initial_thread)
+		return tid;
 	t->parent = thread_current();
 	sema_init(&t->fork_sema, 0);
 	sema_init(&t->wait_sema, 0);
