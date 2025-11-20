@@ -41,6 +41,7 @@ static void s_close(int fd);
 
 static void s_check_access(const char *file);
 static void s_check_buffer(const void *buffer, unsigned length);
+static int is_my_child(struct thread *parent, struct thread *child);
 enum fd_type
 {
 	READ = 0,
