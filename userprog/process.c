@@ -161,12 +161,10 @@ static void __do_fork(void *aux)
 {
 	struct intr_frame if_;
 	struct thread *current = thread_current();
+	process_init();
 	struct thread *parent = ((struct aux *)aux)->thread;
 	struct intr_frame *parent_if = ((struct aux *)aux)->if_;
 	bool succ = true;
-
-	process_init();
-
 	/* 1. Read the cpu context to local stack. */
 	memcpy(&if_, parent_if, sizeof(struct intr_frame));
 
