@@ -89,6 +89,8 @@ initd(void *f_name)
 tid_t process_fork(const char *name, struct intr_frame *if_)
 {
 	struct aux *aux = (struct aux *)malloc(sizeof(struct aux));
+	if (aux == NULL)
+		return TID_ERROR;
 	aux->thread = thread_current();
 	aux->if_ = if_;
 	return thread_create(name, PRI_DEFAULT, __do_fork, aux);
