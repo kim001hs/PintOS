@@ -5,6 +5,7 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "intrinsic.h"
+#include "userprog/syscall.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -150,12 +151,19 @@ page_fault(struct intr_frame *f)
 
 	/* Count page faults. */
 	page_fault_cnt++;
-
-	/* If the fault is true fault, show info and exit. */
-	printf("Page fault at %p: %s error %s page in %s context.\n",
-		   fault_addr,
-		   not_present ? "not present" : "rights violation",
-		   write ? "writing" : "reading",
-		   user ? "user" : "kernel");
-	kill(f);
+	if (user)
+	{
+		s_exit(-1);
+		NOT_REACHED(); // 이 라인이 실행되면 안됨, 디버깅용
+	}
+	else
+	{
+		/* If the fault is true fault, show info and exit. */
+		printf("Page fault at %p: %s error %s page in %s context.\n",
+			   fault_addr,
+			   not_present ? "not present" : "rights violation",
+			   write ? "writing" : "reading",
+			   user ? "user" : "kernel");
+		kill(f);
+	}
 }
