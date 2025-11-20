@@ -146,7 +146,7 @@ duplicate_pte(uint64_t *pte, void *va, void *aux)
 	if (!pml4_set_page(current->pml4, va, newpage, writable))
 	{
 		/* 6. TODO: if fail to insert page, do error handling. */
-		// palloc_free_page(newpage);
+		palloc_free_page(newpage);
 		return false;
 	}
 	return true;
