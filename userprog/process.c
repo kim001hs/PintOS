@@ -315,20 +315,12 @@ int process_wait(tid_t child_tid)
 	struct thread *cur = thread_current();
 	struct thread *child = get_thread_by_tid(child_tid);
 	int exit_code = -1;
-	int already_waited = 0;
-	if (child == NULL)
+	if (child == NULL || child->waited)
 	{
 		return -1;
 	}
-	lock_acquire(&child->wait_lock);
-	if (child->waited)
-	{
-		lock_release(&child->wait_lock);
-		return -1;
-	}
-	child->waited = true;
-	lock_release(&child->wait_lock);
 	sema_down(&child->wait_sema);
+	child->waited = true;
 	exit_code = child->exit_status;
 	sema_up(&child->exit_sema);
 	return exit_code;
@@ -565,12 +557,23 @@ load(const char *file_name, struct intr_frame *if_)
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+	success = true;
 	file_deny_write(file);
 	t->running_file = file;
-	success = true;
 
 done:
 	/* We arrive here whether the load is successful or not. */
+	if (success)
+	{
+		file_deny_write(file);
+		thread_current()->running_file = file;
+	}
+	else
+	{
+		// 중간에 파일을 열었는데 load가 실패하면
+		if (file != NULL)
+			file_close(file);
+	}
 	return success;
 }
 
