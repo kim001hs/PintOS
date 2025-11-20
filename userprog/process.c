@@ -314,12 +314,20 @@ int process_wait(tid_t child_tid)
 	struct thread *cur = thread_current();
 	struct thread *child = get_thread_by_tid(child_tid);
 	int exit_code = -1;
-	if (child == NULL || child->waited)
+	int already_waited = 0;
+	if (child == NULL)
 	{
 		return -1;
 	}
-	sema_down(&child->wait_sema);
+	lock_acquire(&child->wait_lock);
+	if (child->waited)
+	{
+		lock_release(&child->wait_lock);
+		return -1;
+	}
 	child->waited = true;
+	lock_release(&child->wait_lock);
+	sema_down(&child->wait_sema);
 	exit_code = child->exit_status;
 	sema_up(&child->exit_sema);
 	return exit_code;
