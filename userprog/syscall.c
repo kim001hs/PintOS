@@ -403,7 +403,7 @@ static int s_dup2(int oldfd, int newfd)
 	// - **`fork()` 이후에도 dup된 fd의 의미는 유지되어야 합니다.**
 }
 
-void s_check_access(const char *file)
+static void s_check_access(const char *file)
 {
 	if (file == NULL || !is_user_vaddr(file) || pml4_get_page(thread_current()->pml4, file) == NULL)
 	{
