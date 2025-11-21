@@ -20,9 +20,13 @@
 #include "threads/synch.h"
 #include "intrinsic.h"
 #include "devices/timer.h"
+#include "lib/stdio.h"
+#include "threads/malloc.h"
+
 #ifdef VM
 #include "vm/vm.h"
 #endif
+#define FD_TABLE_SIZE 2
 
 static void process_cleanup(void);
 static bool load(const char *file_name, struct intr_frame *if_);
@@ -36,11 +40,6 @@ process_init(void)
 {
 	struct thread *current = thread_current();
 	current->exit_status = 0;
-	memset(current->fd_table, 0, sizeof(current->fd_table));
-	current->fd_table[STDIN_FILENO] = 1;
-	current->fd_table[STDOUT_FILENO] = 1;
-	current->fork_success = false;
-	// list_init(&current->child_list);
 	current->waited = false;
 }
 
@@ -78,6 +77,16 @@ initd(void *f_name)
 #endif
 
 	process_init();
+	struct thread *t = thread_current();
+	t->fd_table = malloc(sizeof(struct file *) * FD_TABLE_SIZE);
+	if (t->fd_table == NULL)
+	{
+		PANIC("Failed to allocate fd_table for initd\n");
+	}
+	memset(t->fd_table, 0, sizeof(struct file *) * FD_TABLE_SIZE);
+	t->fd_table_size = FD_TABLE_SIZE;
+	t->fd_table[STDIN_FILENO] = 1;
+	t->fd_table[STDOUT_FILENO] = 1;
 
 	if (process_exec(f_name) < 0)
 		PANIC("Fail to launch initd\n");
@@ -187,7 +196,17 @@ static void __do_fork(void *aux)
 
 	/* 3. Duplicate file descriptor table */
 	// memcpy(current->fd_table, parent->fd_table, sizeof(current->fd_table));
-	for (int fd = 0; fd < 128; fd++)
+	current->fd_table_size = parent->fd_table_size;
+	current->fd_table = malloc(sizeof(struct file *) * parent->fd_table_size);
+	if (current->fd_table == NULL)
+	{
+		PANIC("fd_table allocation failed.");
+	}
+
+	// memset(current->fd_table, 0, sizeof(struct file *) * current->fd_table_size);
+	// memcpy(current->fd_table, parent->fd_table, sizeof(struct file *) * parent->fd_table_size);
+
+	for (int fd = 0; fd < parent->fd_table_size; fd++)
 	{
 		struct file *f = parent->fd_table[fd];
 
@@ -214,11 +233,9 @@ static void __do_fork(void *aux)
 	if (succ)
 	{
 		if_.R.rax = 0; // 자식 프로세스는 0을 반환
-		current->fork_success = true;
 		do_iret(&if_);
 	}
 error:
-	current->fork_success = false;
 	thread_exit();
 }
 
@@ -335,7 +352,7 @@ void process_exit(void)
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
 	int fd;
-	for (fd = 2; fd < 128; fd++)
+	for (fd = 2; fd < curr->fd_table_size; fd++)
 	{ // 0은 표준 입력, 1은 표준 출력, 2는 표준 에러 출력
 		struct file *f = curr->fd_table[fd];
 		if (f != NULL)
@@ -354,12 +371,14 @@ void process_exit(void)
 	sema_down(&curr->exit_sema);
 	process_cleanup();
 	list_remove(&curr->child_elem);
+	free(curr->fd_table);
 }
 
 static void
 process_cleanup(void)
 {
 	struct thread *curr = thread_current();
+	// free(curr->fd_table);
 
 #ifdef VM
 	supplemental_page_table_kill(&curr->spt);

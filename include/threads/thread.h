@@ -120,12 +120,12 @@ struct thread
 	uint64_t *pml4; /* Page map level 4 */
 	// userprog
 	int exit_status;
-	struct file *fd_table[128];
+	struct file **fd_table;
+	int fd_table_size;
 	struct semaphore fork_sema;
 	struct semaphore wait_sema;
 	struct semaphore exit_sema;
 	bool waited;
-	bool fork_success;
 	struct list child_list;
 	struct list_elem child_elem;
 	struct file *running_file; /* 이 스레드가 실행 중인 실행 파일(executable)을 가리키는 포인터 (load()시 저장) */
