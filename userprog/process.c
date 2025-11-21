@@ -40,7 +40,6 @@ process_init(void)
 {
 	struct thread *current = thread_current();
 	current->exit_status = 0;
-	current->fork_success = false;
 	current->waited = false;
 }
 
@@ -234,11 +233,9 @@ static void __do_fork(void *aux)
 	if (succ)
 	{
 		if_.R.rax = 0; // 자식 프로세스는 0을 반환
-		current->fork_success = true;
 		do_iret(&if_);
 	}
 error:
-	current->fork_success = false;
 	thread_exit();
 }
 
