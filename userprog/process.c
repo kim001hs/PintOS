@@ -89,6 +89,8 @@ initd(void *f_name)
 tid_t process_fork(const char *name, struct intr_frame *if_)
 {
 	struct aux *aux = (struct aux *)malloc(sizeof(struct aux));
+	if (aux == NULL)
+		return TID_ERROR;
 	aux->thread = thread_current();
 	aux->if_ = if_;
 	return thread_create(name, PRI_DEFAULT, __do_fork, aux);
@@ -144,7 +146,7 @@ duplicate_pte(uint64_t *pte, void *va, void *aux)
 	if (!pml4_set_page(current->pml4, va, newpage, writable))
 	{
 		/* 6. TODO: if fail to insert page, do error handling. */
-		// palloc_free_page(newpage);
+		palloc_free_page(newpage);
 		return false;
 	}
 	return true;
@@ -159,12 +161,11 @@ static void __do_fork(void *aux)
 {
 	struct intr_frame if_;
 	struct thread *current = thread_current();
+	process_init();
 	struct thread *parent = ((struct aux *)aux)->thread;
 	struct intr_frame *parent_if = ((struct aux *)aux)->if_;
+	free(aux);
 	bool succ = true;
-
-	process_init();
-
 	/* 1. Read the cpu context to local stack. */
 	memcpy(&if_, parent_if, sizeof(struct intr_frame));
 
@@ -311,8 +312,18 @@ int process_wait(tid_t child_tid)
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	timer_sleep(100);
-	return -1;
+	struct thread *cur = thread_current();
+	struct thread *child = get_thread_by_tid(child_tid);
+	int exit_code = -1;
+	if (child == NULL || child->waited)
+	{
+		return -1;
+	}
+	sema_down(&child->wait_sema);
+	child->waited = true;
+	exit_code = child->exit_status;
+	sema_up(&child->exit_sema);
+	return exit_code;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -546,12 +557,23 @@ load(const char *file_name, struct intr_frame *if_)
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+	success = true;
 	file_deny_write(file);
 	t->running_file = file;
-	success = true;
 
 done:
 	/* We arrive here whether the load is successful or not. */
+	if (success)
+	{
+		file_deny_write(file);
+		thread_current()->running_file = file;
+	}
+	else
+	{
+		// 중간에 파일을 열었는데 load가 실패하면
+		if (file != NULL)
+			file_close(file);
+	}
 	return success;
 }
 

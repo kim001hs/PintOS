@@ -210,14 +210,15 @@ tid_t thread_create(const char *name, int priority,
 	t->tf.ss = SEL_KDSEG;
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
-	if (t == initial_thread)
-		return tid;
-	sema_init(&t->fork_sema, 0);
-	sema_init(&t->wait_sema, 0);
-	sema_init(&t->exit_sema, 0);
-	if (function)
+	if (t != initial_thread)
 	{
-		list_push_back(&thread_current()->child_list, &t->child_elem);
+		sema_init(&t->fork_sema, 0);
+		sema_init(&t->wait_sema, 0);
+		sema_init(&t->exit_sema, 0);
+		if (function)
+		{
+			list_push_back(&thread_current()->child_list, &t->child_elem);
+		}
 	}
 	thread_unblock(t);
 	preempt_priority();
