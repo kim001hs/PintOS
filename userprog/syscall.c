@@ -245,7 +245,7 @@ static int s_open(const char *file)
 
 	struct thread *t = thread_current();
 
-	for (int i = 0; i < t->fd_table_size; i++)
+	for (int i = 2; i < t->fd_table_size; i++)
 	{
 		if (!t->fd_table[i])
 		{
@@ -450,10 +450,6 @@ static void s_check_fd(int fd, enum fd_type type)
 
 static int realloc_fd_table(struct thread *t)
 {
-	// if (t->fd_table_size == 512)
-	// {
-	// 	return -1;
-	// }
 	int new_size = t->fd_table_size * 2;
 	struct file **new_table = malloc(sizeof(struct file *) * new_size);
 	if (new_table == NULL)

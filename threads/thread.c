@@ -330,7 +330,7 @@ void thread_yield(void)
 void preempt_priority(void)
 {
 	enum intr_level old_level;
-	old_level = intr_disable(); //
+	old_level = intr_disable();
 	if (thread_current() == idle_thread)
 		return;
 	if (list_empty(&ready_list))
@@ -338,7 +338,7 @@ void preempt_priority(void)
 	struct thread *curr = thread_current();
 	list_sort(&ready_list, priority_greater, NULL);
 	struct thread *ready = list_entry(list_front(&ready_list), struct thread, elem);
-	intr_set_level(old_level); //
+	intr_set_level(old_level);
 	if (curr->priority < ready->priority)
 	{
 		if (intr_context())

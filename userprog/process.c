@@ -80,6 +80,10 @@ initd(void *f_name)
 	process_init();
 	struct thread *t = thread_current();
 	t->fd_table = malloc(sizeof(struct file *) * FD_TABLE_SIZE);
+	if (t->fd_table == NULL)
+	{
+		PANIC("Failed to allocate fd_table for initd\n");
+	}
 	memset(t->fd_table, 0, sizeof(struct file *) * FD_TABLE_SIZE);
 	t->fd_table_size = FD_TABLE_SIZE;
 	t->fd_table[STDIN_FILENO] = 1;
@@ -370,13 +374,14 @@ void process_exit(void)
 	sema_down(&curr->exit_sema);
 	process_cleanup();
 	list_remove(&curr->child_elem);
+	free(curr->fd_table);
 }
 
 static void
 process_cleanup(void)
 {
 	struct thread *curr = thread_current();
-	free(curr->fd_table);
+	// free(curr->fd_table);
 
 #ifdef VM
 	supplemental_page_table_kill(&curr->spt);
