@@ -63,6 +63,8 @@ static int s_dup2(int oldfd, int newfd);
 #define MSR_LSTAR 0xc0000082		/* Long mode SYSCALL target */
 #define MSR_SYSCALL_MASK 0xc0000084 /* Mask for the eflags */
 
+#define MAXFD 512
+
 void syscall_init(void)
 {
 	write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48 |
@@ -242,7 +244,7 @@ static int s_open(const char *file)
 
 	struct thread *t = thread_current();
 
-	for (int i = 2; i < 128; i++)
+	for (int i = 2; i < MAXFD; i++)
 	{
 		if (t->fd_table[i] == NULL)
 		{
@@ -430,7 +432,7 @@ static void s_check_buffer(const void *buffer, unsigned length)
 
 static void s_check_fd(int fd, enum fd_type type)
 {
-	if (fd < 0 || fd >= 128)
+	if (fd < 0 || fd >= MAXFD)
 	{
 		s_exit(-1);
 	}

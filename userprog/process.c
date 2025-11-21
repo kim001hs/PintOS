@@ -20,6 +20,7 @@
 #include "threads/synch.h"
 #include "intrinsic.h"
 #include "devices/timer.h"
+#include "threads/malloc.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -30,18 +31,18 @@ static void initd(void *f_name);
 static void __do_fork(void *aux);
 static int64_t get_user(const uint8_t *uaddr);
 static bool put_user(uint8_t *udst, uint8_t byte);
+
+#define MAXFD 512
+
 /* General process initializer for initd and other process. */
 static void
 process_init(void)
 {
 	struct thread *current = thread_current();
 	current->exit_status = 0;
-	memset(current->fd_table, 0, sizeof(current->fd_table));
-	current->fd_table[STDIN_FILENO] = 1;
-	current->fd_table[STDOUT_FILENO] = 1;
 	current->fork_success = false;
-	// list_init(&current->child_list);
 	current->waited = false;
+	current->fd_table = calloc(MAXFD, sizeof(struct file *));
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -186,8 +187,7 @@ static void __do_fork(void *aux)
 #endif
 
 	/* 3. Duplicate file descriptor table */
-	// memcpy(current->fd_table, parent->fd_table, sizeof(current->fd_table));
-	for (int fd = 0; fd < 128; fd++)
+	for (int fd = 0; fd < MAXFD; fd++)
 	{
 		struct file *f = parent->fd_table[fd];
 
@@ -266,6 +266,7 @@ int process_exec(void *f_name)
 
 	palloc_free_page(file_name);
 	/* Start switched process. */
+
 	do_iret(&_if);
 	NOT_REACHED();
 }
@@ -335,7 +336,7 @@ void process_exit(void)
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
 	int fd;
-	for (fd = 2; fd < 128; fd++)
+	for (fd = 2; fd < MAXFD; fd++)
 	{ // 0은 표준 입력, 1은 표준 출력, 2는 표준 에러 출력
 		struct file *f = curr->fd_table[fd];
 		if (f != NULL)
@@ -344,6 +345,7 @@ void process_exit(void)
 			curr->fd_table[fd] = NULL; // 파일 디스크립터를 NULL로 설정
 		}
 	}
+	free(curr->fd_table);
 	// 정상적으로 실행했다면
 	if (curr->running_file != NULL)
 	{
