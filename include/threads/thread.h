@@ -120,10 +120,8 @@ struct thread
 	uint64_t *pml4; /* Page map level 4 */
 	// userprog
 	int exit_status;
-	// struct file *fd_table[128];
 	struct file **fd_table;
 	int fd_table_size;
-	int fd_table_idx;
 	struct semaphore fork_sema;
 	struct semaphore wait_sema;
 	struct semaphore exit_sema;

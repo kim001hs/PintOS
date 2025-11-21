@@ -13,6 +13,8 @@
 #include "userprog/process.h"
 #include <string.h>
 #include "threads/palloc.h"
+#include "threads/malloc.h"
+
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
 
@@ -41,7 +43,8 @@ static void s_close(int fd);
 
 static void s_check_access(const char *file);
 static void s_check_buffer(const void *buffer, unsigned length);
-static int is_my_child(struct thread *parent, struct thread *child);
+static int realloc_fd_table(struct thread *t);
+
 enum fd_type
 {
 	READ = 0,
@@ -242,23 +245,27 @@ static int s_open(const char *file)
 
 	struct thread *t = thread_current();
 
-	for (int i = 2; i < 128; i++)
+	for (int i = 0; i < t->fd_table_size; i++)
 	{
 		if (t->fd_table[i] == NULL)
 		{
-			t->fd_table[i] = target_file;
 			fd = i;
 			break;
 		}
 	}
+
 	if (fd == -1)
 	{
-		/* FD 공간이 없음 → file 닫고 실패 반환 */
-		lock_acquire(&filesys_lock);
-		file_close(target_file);
-		lock_release(&filesys_lock);
-		return -1;
+		if (realloc_fd_table(t) == -1)
+		{
+			lock_acquire(&filesys_lock);
+			file_close(target_file);
+			lock_release(&filesys_lock);
+			return -1;
+		}
+		fd = t->fd_table_size / 2;
 	}
+	t->fd_table[fd] = target_file;
 	return fd;
 }
 
@@ -430,7 +437,8 @@ static void s_check_buffer(const void *buffer, unsigned length)
 
 static void s_check_fd(int fd, enum fd_type type)
 {
-	if (fd < 0 || fd >= 128)
+	struct thread *t = thread_current();
+	if (fd < 0 || fd >= t->fd_table_size)
 	{
 		s_exit(-1);
 	}
@@ -438,4 +446,20 @@ static void s_check_fd(int fd, enum fd_type type)
 	{
 		s_exit(-1);
 	}
+}
+
+static int realloc_fd_table(struct thread *t)
+{
+	int new_size = t->fd_table_size * 2;
+	struct file **new_table = malloc(sizeof(t->fd_table) * new_size);
+	if (new_table == NULL)
+	{
+		return -1;
+	}
+	memset(t->fd_table, 0, sizeof(t->fd_table) * new_size);
+	memcpy(new_table, t->fd_table, sizeof(t->fd_table) * t->fd_table_size);
+	free(t->fd_table);
+	t->fd_table = new_table;
+	t->fd_table_size = new_size;
+	return 1;
 }
