@@ -25,7 +25,7 @@ void syscall_handler(struct intr_frame *);
 static struct lock filesys_lock;
 
 static void s_halt(void) NO_RETURN;
-static void s_exit(int status) NO_RETURN;
+void s_exit(int status) NO_RETURN;
 static int s_fork(const char *thread_name, struct intr_frame *f);
 static int s_exec(const char *file);
 static int s_wait(pid_t);
@@ -164,7 +164,7 @@ static void s_halt(void)
 	power_off();
 }
 
-static void s_exit(int status)
+void s_exit(int status)
 {
 	struct thread *cur = thread_current();
 	cur->exit_status = status;
@@ -210,18 +210,7 @@ static int s_exec(const char *file)
 
 static int s_wait(int tid)
 {
-	struct thread *cur = thread_current();
-	struct thread *child = get_thread_by_tid(tid);
-	int exit_code = -1;
-	if (child == NULL || child->waited)
-	{
-		return -1;
-	}
-	sema_down(&child->wait_sema);
-	child->waited = true;
-	exit_code = child->exit_status;
-	sema_up(&child->exit_sema);
-	return exit_code;
+	return process_wait(tid);
 }
 
 static bool s_create(const char *file, unsigned initial_size)
