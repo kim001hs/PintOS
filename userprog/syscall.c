@@ -44,14 +44,7 @@ static void s_close(int fd);
 static void s_check_access(const char *file);
 static void s_check_buffer(const void *buffer, unsigned length);
 static int realloc_fd_table(struct thread *t);
-
-enum fd_type
-{
-	READ = 0,
-	WRITE = 1,
-	NEITHER = 2,
-};
-static void s_check_fd(int fd, enum fd_type type);
+static void s_check_fd(int fd);
 // extra
 static int s_dup2(int oldfd, int newfd);
 /* System call.
@@ -245,7 +238,7 @@ static int s_open(const char *file)
 
 	struct thread *t = thread_current();
 
-	for (int i = 2; i < t->fd_table_size; i++)
+	for (int i = 0; i < t->fd_table_size; i++)
 	{
 		if (!t->fd_table[i])
 		{
@@ -271,9 +264,9 @@ static int s_open(const char *file)
 
 static int s_filesize(int fd)
 {
-	s_check_fd(fd, READ);
+	s_check_fd(fd);
 	struct file *f = thread_current()->fd_table[fd];
-	if (f == NULL)
+	if (f == NULL || f == STDOUT || f == STDIN)
 		return -1;
 	int size;
 	lock_acquire(&filesys_lock);
@@ -285,20 +278,18 @@ static int s_filesize(int fd)
 static int s_read(int fd, void *buffer, unsigned length)
 {
 	s_check_buffer(buffer, length);
-	s_check_fd(fd, READ);
+	s_check_fd(fd);
 	int bytes_read = 0;
 
-	// 2. stdin (fd == 0)
-	if (fd == 0)
+	// 3. 파일 디스크립터에서 파일 찾기
+	struct file *f = thread_current()->fd_table[fd];
+	if (f == STDIN)
 	{
 		for (unsigned i = 0; i < length; i++)
 			((uint8_t *)buffer)[i] = input_getc();
 		return length;
 	}
-
-	// 3. 파일 디스크립터에서 파일 찾기
-	struct file *f = thread_current()->fd_table[fd];
-	if (f == NULL)
+	if (f == NULL || f == STDOUT)
 		return -1;
 
 	// 4. 파일 읽기
@@ -317,23 +308,20 @@ which may be less than size if some bytes could not be written. */
 static int s_write(int fd, const void *buffer, unsigned length)
 {
 	s_check_buffer(buffer, length);
-	s_check_fd(fd, WRITE);
-
-	// 콘솔 출력
-	if (fd == 1)
-	{
-		putbuf(buffer, length);
-		return length;
-	}
+	s_check_fd(fd);
 
 	// 파일에 write 하기
 	struct file *curr_file = thread_current()->fd_table[fd];
 	// 파일을 못 가져오면
-	if (curr_file == NULL)
+	if (curr_file == NULL || curr_file == STDIN)
 	{
 		return -1;
 	}
-
+	else if (curr_file == STDOUT)
+	{
+		putbuf(buffer, length);
+		return length;
+	}
 	// write 하기전에 lock
 	lock_acquire(&filesys_lock);
 	int written = file_write(curr_file, buffer, length); // file.h
@@ -344,17 +332,15 @@ static int s_write(int fd, const void *buffer, unsigned length)
 
 static void s_seek(int fd, unsigned position)
 {
-	s_check_fd(fd, NEITHER);
+	s_check_fd(fd);
 	// stdin(0)과 stdout(1)은 seek 의미가 없으므로, 오류를 내지 않고 그대로 무시
-	if (fd == 0 || fd == 1)
-	{
-		return;
-	}
 	struct file *curr_file = thread_current()->fd_table[fd];
 	if (curr_file == NULL)
 	{
 		s_exit(-1);
 	}
+	else if (curr_file == STDIN || curr_file == STDOUT)
+		return;
 	lock_acquire(&filesys_lock);
 	file_seek(curr_file, position);
 	lock_release(&filesys_lock);
@@ -362,16 +348,14 @@ static void s_seek(int fd, unsigned position)
 
 static unsigned s_tell(int fd)
 {
-	s_check_fd(fd, NEITHER);
-	if (fd == 0 || fd == 1)
-	{
-		return 0;
-	}
+	s_check_fd(fd);
 	struct file *curr_file = thread_current()->fd_table[fd];
 	if (curr_file == NULL)
 	{
 		s_exit(-1);
 	}
+	else if (curr_file == STDIN || curr_file == STDOUT)
+		return 0;
 	lock_acquire(&filesys_lock);
 	off_t next_byte = file_tell(curr_file);
 	lock_release(&filesys_lock);
@@ -380,20 +364,22 @@ static unsigned s_tell(int fd)
 
 static void s_close(int fd)
 {
-	s_check_fd(fd, NEITHER);
-	if (fd == 0 || fd == 1)
-	{
-		return;
-	}
+	s_check_fd(fd);
 	struct file *curr_file = thread_current()->fd_table[fd];
 	if (curr_file == NULL)
 	{
 		s_exit(-1);
 	}
-	lock_acquire(&filesys_lock);
-	file_close(curr_file);
-	lock_release(&filesys_lock);
-
+	else if (curr_file != STDIN && curr_file != STDOUT)
+	{
+		decrease_ref_count(curr_file);
+		if (check_ref_count(curr_file) == 0)
+		{
+			lock_acquire(&filesys_lock);
+			file_close(curr_file);
+			lock_release(&filesys_lock);
+		}
+	}
 	thread_current()->fd_table[fd] = NULL;
 	return;
 }
@@ -435,14 +421,10 @@ static void s_check_buffer(const void *buffer, unsigned length)
 	}
 }
 
-static void s_check_fd(int fd, enum fd_type type)
+static void s_check_fd(int fd)
 {
 	struct thread *t = thread_current();
 	if (fd < 0 || fd >= t->fd_table_size)
-	{
-		s_exit(-1);
-	}
-	else if ((type == READ && fd == 1) || (type == WRITE && fd == 0))
 	{
 		s_exit(-1);
 	}

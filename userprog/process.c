@@ -41,6 +41,8 @@ process_init(void)
 	struct thread *current = thread_current();
 	current->exit_status = 0;
 	current->waited = false;
+	current->fd_table[STDIN_FILENO] = STDIN;
+	current->fd_table[STDOUT_FILENO] = STDOUT;
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -76,17 +78,15 @@ initd(void *f_name)
 	supplemental_page_table_init(&thread_current()->spt);
 #endif
 
-	process_init();
 	struct thread *t = thread_current();
 	t->fd_table = malloc(sizeof(struct file *) * FD_TABLE_SIZE);
+	process_init();
 	if (t->fd_table == NULL)
 	{
 		PANIC("Failed to allocate fd_table for initd\n");
 	}
 	memset(t->fd_table, 0, sizeof(struct file *) * FD_TABLE_SIZE);
 	t->fd_table_size = FD_TABLE_SIZE;
-	t->fd_table[STDIN_FILENO] = 1;
-	t->fd_table[STDOUT_FILENO] = 1;
 
 	if (process_exec(f_name) < 0)
 		PANIC("Fail to launch initd\n");
@@ -170,10 +170,16 @@ static void __do_fork(void *aux)
 {
 	struct intr_frame if_;
 	struct thread *current = thread_current();
-	process_init();
 	struct thread *parent = ((struct aux *)aux)->thread;
 	struct intr_frame *parent_if = ((struct aux *)aux)->if_;
 	free(aux);
+	current->fd_table_size = parent->fd_table_size;
+	current->fd_table = malloc(sizeof(struct file *) * parent->fd_table_size);
+	if (current->fd_table == NULL)
+	{
+		PANIC("fd_table allocation failed.");
+	}
+	process_init();
 	bool succ = true;
 	/* 1. Read the cpu context to local stack. */
 	memcpy(&if_, parent_if, sizeof(struct intr_frame));
@@ -196,12 +202,6 @@ static void __do_fork(void *aux)
 
 	/* 3. Duplicate file descriptor table */
 	// memcpy(current->fd_table, parent->fd_table, sizeof(current->fd_table));
-	current->fd_table_size = parent->fd_table_size;
-	current->fd_table = malloc(sizeof(struct file *) * parent->fd_table_size);
-	if (current->fd_table == NULL)
-	{
-		PANIC("fd_table allocation failed.");
-	}
 
 	// memset(current->fd_table, 0, sizeof(struct file *) * current->fd_table_size);
 	// memcpy(current->fd_table, parent->fd_table, sizeof(struct file *) * parent->fd_table_size);
@@ -209,23 +209,11 @@ static void __do_fork(void *aux)
 	for (int fd = 0; fd < parent->fd_table_size; fd++)
 	{
 		struct file *f = parent->fd_table[fd];
-
-		if (f == NULL)
-		{
-			current->fd_table[fd] = NULL;
+		current->fd_table[fd] = f;
+		if (!f)
 			continue;
-		}
-
-		if (fd == 0 || fd == 1)
-		{
-			/* stdin(0) and stdout(1): shared */
-			current->fd_table[fd] = f;
-		}
-		else
-		{
-			/* duplicate file for the child */
-			current->fd_table[fd] = file_duplicate(f);
-		}
+		else if (f != STDIN && f != STDOUT)
+			increase_ref_count(current->fd_table[fd]);
 	}
 
 	sema_up(&current->fork_sema);
