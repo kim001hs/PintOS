@@ -370,13 +370,13 @@ void process_exit(void)
 	sema_down(&curr->exit_sema);
 	process_cleanup();
 	list_remove(&curr->child_elem);
-	free(curr->fd_table);
 }
 
 static void
 process_cleanup(void)
 {
 	struct thread *curr = thread_current();
+	free(curr->fd_table);
 
 #ifdef VM
 	supplemental_page_table_kill(&curr->spt);

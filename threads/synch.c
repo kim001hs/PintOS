@@ -118,9 +118,9 @@ void sema_up(struct semaphore *sema)
 		thread_unblock(t);
 	}
 	sema->value++;
-	intr_set_level(old_level);
 
 	preempt_priority();
+	intr_set_level(old_level);
 }
 
 static void sema_test_helper(void *sema_);

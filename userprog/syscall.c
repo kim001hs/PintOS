@@ -450,6 +450,10 @@ static void s_check_fd(int fd, enum fd_type type)
 
 static int realloc_fd_table(struct thread *t)
 {
+	// if (t->fd_table_size == 512)
+	// {
+	// 	return -1;
+	// }
 	int new_size = t->fd_table_size * 2;
 	struct file **new_table = malloc(sizeof(struct file *) * new_size);
 	if (new_table == NULL)
