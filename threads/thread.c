@@ -14,6 +14,7 @@
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
+#define FD_TABLE_SIZE 2
 
 /* 	Random value for struct thread's `magic' member.
 	Used to detect stack overflow.  See the big comment at the top
@@ -547,6 +548,7 @@ init_thread(struct thread *t, const char *name, int priority)
 	t->original_priority = priority;
 	t->wakeup_tick = 0;
 	t->magic = THREAD_MAGIC;
+
 	list_init(&t->locks_hold);
 	list_init(&t->child_list);
 	t->waiting_lock = NULL;

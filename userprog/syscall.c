@@ -247,7 +247,7 @@ static int s_open(const char *file)
 
 	for (int i = 0; i < t->fd_table_size; i++)
 	{
-		if (t->fd_table[i] == NULL)
+		if (!t->fd_table[i])
 		{
 			fd = i;
 			break;
@@ -451,13 +451,13 @@ static void s_check_fd(int fd, enum fd_type type)
 static int realloc_fd_table(struct thread *t)
 {
 	int new_size = t->fd_table_size * 2;
-	struct file **new_table = malloc(sizeof(t->fd_table) * new_size);
+	struct file **new_table = malloc(sizeof(struct file *) * new_size);
 	if (new_table == NULL)
 	{
 		return -1;
 	}
-	memset(t->fd_table, 0, sizeof(t->fd_table) * new_size);
-	memcpy(new_table, t->fd_table, sizeof(t->fd_table) * t->fd_table_size);
+	memset(new_table, 0, sizeof(struct file *) * new_size);
+	memcpy(new_table, t->fd_table, sizeof(struct file *) * t->fd_table_size);
 	free(t->fd_table);
 	t->fd_table = new_table;
 	t->fd_table_size = new_size;

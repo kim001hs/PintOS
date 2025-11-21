@@ -40,11 +40,6 @@ process_init(void)
 {
 	struct thread *current = thread_current();
 	current->exit_status = 0;
-	current->fd_table = malloc(sizeof(current->fd_table) * FD_TABLE_SIZE);
-	memset(current->fd_table, 0, sizeof(current->fd_table) * FD_TABLE_SIZE);
-	current->fd_table_size = FD_TABLE_SIZE;
-	current->fd_table[STDIN_FILENO] = 1;
-	current->fd_table[STDOUT_FILENO] = 1;
 	current->fork_success = false;
 	current->waited = false;
 }
@@ -83,6 +78,12 @@ initd(void *f_name)
 #endif
 
 	process_init();
+	struct thread *t = thread_current();
+	t->fd_table = malloc(sizeof(struct file *) * FD_TABLE_SIZE);
+	memset(t->fd_table, 0, sizeof(struct file *) * FD_TABLE_SIZE);
+	t->fd_table_size = FD_TABLE_SIZE;
+	t->fd_table[STDIN_FILENO] = 1;
+	t->fd_table[STDOUT_FILENO] = 1;
 
 	if (process_exec(f_name) < 0)
 		PANIC("Fail to launch initd\n");
@@ -192,6 +193,16 @@ static void __do_fork(void *aux)
 
 	/* 3. Duplicate file descriptor table */
 	// memcpy(current->fd_table, parent->fd_table, sizeof(current->fd_table));
+	current->fd_table_size = parent->fd_table_size;
+	current->fd_table = malloc(sizeof(struct file *) * parent->fd_table_size);
+	if (current->fd_table == NULL)
+	{
+		PANIC("fd_table allocation failed.");
+	}
+
+	// memset(current->fd_table, 0, sizeof(struct file *) * current->fd_table_size);
+	// memcpy(current->fd_table, parent->fd_table, sizeof(struct file *) * parent->fd_table_size);
+
 	for (int fd = 0; fd < parent->fd_table_size; fd++)
 	{
 		struct file *f = parent->fd_table[fd];
