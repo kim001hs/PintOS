@@ -397,34 +397,29 @@ static int s_dup2(int oldfd, int newfd)
 {
 	struct thread *t = thread_current();
 
-	// Check if oldfd is valid
 	if (oldfd < 0 || oldfd >= t->fd_table_size || t->fd_table[oldfd] == NULL)
 		return -1;
-
-	// Check if newfd is negative
 	if (newfd < 0)
 		return -1;
-
-	// If oldfd and newfd are the same, just return newfd
 	if (oldfd == newfd)
 		return newfd;
 
-	// Expand fd_table if needed
+	// newfd가 fd_table최대값보다 크면 계속 키움
 	while (newfd >= t->fd_table_size)
 	{
 		if (realloc_fd_table(t) == -1)
 			return -1;
 	}
 
-	// Close newfd if it's already open
+	// 이미 열려있으면 닫기
 	if (t->fd_table[newfd] != NULL)
 		s_close(newfd);
 
-	// Duplicate the file descriptor
+	// 포인터 복사
 	struct file *f = t->fd_table[oldfd];
 	t->fd_table[newfd] = f;
 
-	// Increase reference count for shared file
+	// ref_count 올리기
 	if (f != STDIN && f != STDOUT)
 		increase_ref_count(f);
 

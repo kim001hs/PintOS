@@ -32,8 +32,6 @@ static void process_cleanup(void);
 static bool load(const char *file_name, struct intr_frame *if_);
 static void initd(void *f_name);
 static void __do_fork(void *aux);
-static int64_t get_user(const uint8_t *uaddr);
-static bool put_user(uint8_t *udst, uint8_t byte);
 /* General process initializer for initd and other process. */
 static void
 process_init(void)
@@ -212,21 +210,18 @@ static void __do_fork(void *aux)
 		{
 			current->fd_table[fd] = NULL;
 		}
-		else if ((uintptr_t)f <= 2) // Handle STDIN(1) and STDOUT(2) sentinels
+		else if (f == STDIN || f == STDOUT)
 		{
 			current->fd_table[fd] = f;
 		}
 		else
 		{
-			// Check if we've already duplicated this file object
 			struct file *dup_file = NULL;
 			for (int prev_fd = 0; prev_fd < fd; prev_fd++)
 			{
-				if (parent->fd_table[prev_fd] == f &&
-					current->fd_table[prev_fd] != NULL &&
-					(uintptr_t)current->fd_table[prev_fd] > 2) // Not STDIN(1) or STDOUT(2)
+				if (parent->fd_table[prev_fd] == f && current->fd_table[prev_fd] != NULL && (uintptr_t)current->fd_table[prev_fd] > 2)
 				{
-					// Reuse the already duplicated file
+					// dup2되어있으면 파일 새로 만드는 대신 포인터만 복사
 					dup_file = current->fd_table[prev_fd];
 					break;
 				}
@@ -234,13 +229,12 @@ static void __do_fork(void *aux)
 
 			if (dup_file != NULL)
 			{
-				// Multiple fds point to same file in parent, so reuse duplicate and increase ref_count
 				current->fd_table[fd] = dup_file;
 				increase_ref_count(dup_file);
 			}
 			else
 			{
-				// First time seeing this file object, duplicate it
+				// 아니면 file_duplicate써서 새로 파일 만들기
 				current->fd_table[fd] = file_duplicate(f);
 				if (current->fd_table[fd] == NULL)
 					goto error;
@@ -255,8 +249,8 @@ static void __do_fork(void *aux)
 		do_iret(&if_);
 	}
 error:
-	current->exit_status = -1;	  // Fork failed, set exit status to -1
-	sema_up(&current->fork_sema); // Signal parent even on error
+	current->exit_status = -1;
+	sema_up(&current->fork_sema);
 	thread_exit();
 }
 
@@ -278,62 +272,19 @@ int process_exec(void *f_name)
 	/* We first kill the current context */
 	process_cleanup();
 
-	// todo
-	char *argv[64]; // 인자 64개까지 받음
-	int argc = 0;
-	char *save_ptr;
-	for (char *token = strtok_r(file_name, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr))
-	{
-		if (argc >= 64)
-			break;
-		argv[argc++] = token;
-	}
-
 	/* And then load the binary */
 	success = load(file_name, &_if);
 
+	palloc_free_page(file_name);
 	/* If load failed, quit. */
 	if (!success)
 	{
-		palloc_free_page(file_name);
 		return -1;
 	}
 
-	_if.R.rsi = (uint64_t)push_argument(argv, argc, &_if.rsp);
-	_if.R.rdi = argc;
-
-	palloc_free_page(file_name);
 	/* Start switched process. */
 	do_iret(&_if);
 	NOT_REACHED();
-}
-
-// rsp에 argv를 넣어주고 argv의 시작주소를 리턴
-char *push_argument(char **argv, int argc, void **rsp_ptr)
-{
-	intptr_t cur_rsp = (uintptr_t)*rsp_ptr; // 현재 스택 최상단 주소
-	void *argv_ptr[65];						// argv[n]을 가리키는 포인터 배열
-	for (int i = argc - 1; i >= 0; i--)
-	{
-		size_t cur_len = strlen(argv[i]) + 1;
-		cur_rsp -= cur_len;
-		memcpy((void *)cur_rsp, argv[i], cur_len);
-		argv_ptr[i] = cur_rsp;
-	}
-	argv_ptr[argc] = NULL;
-	cur_rsp = cur_rsp & ~0x7;
-	for (int i = argc; i >= 0; i--)
-	{
-		cur_rsp -= sizeof(void *);
-		*(void **)cur_rsp = argv_ptr[i];
-	}
-	char *argv_start = cur_rsp; // argv_ptr[0]의 주소 -> rsi에 저장할 주소
-	// return address(dummy) 푸시
-	cur_rsp -= sizeof(void *);
-	memset((void *)cur_rsp, 0, sizeof(void *)); // 0으로 채워서 NULL로 만듬
-
-	*rsp_ptr = cur_rsp; // 스택 최상단(가장 낮은 주소) -> rsp에 저장할 주소
-	return (char *)argv_start;
 }
 
 /* Waits for thread TID to die and returns its exit status.  If
@@ -526,8 +477,12 @@ load(const char *file_name, struct intr_frame *if_)
 		goto done;
 	process_activate(thread_current());
 
+	// 파싱하기 (file_name은 이미 s_exec에서 복사본이므로 수정 가능)
+	char *save_ptr;
+	char *program_name = strtok_r(file_name, " ", &save_ptr);
+
 	/* Open executable file. */
-	file = filesys_open(file_name);
+	file = filesys_open(program_name);
 	if (file == NULL)
 	{
 		printf("load: %s: open failed\n", file_name);
@@ -609,6 +564,43 @@ load(const char *file_name, struct intr_frame *if_)
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+	// Argument passing
+	char *argv[64]; // 인자 64개까지 받음
+	int argc = 0;
+
+	// program_name부터 시작해서 나머지 인자들 파싱
+	argv[argc++] = program_name;
+	for (char *token = strtok_r(NULL, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr))
+	{
+		if (argc >= 64)
+			break;
+		argv[argc++] = token;
+	}
+
+	intptr_t cur_rsp = (uintptr_t)if_->rsp; // 현재 스택 최상단 주소
+	void *argv_ptr[65];						// argv[n]을 가리키는 포인터 배열
+	for (int i = argc - 1; i >= 0; i--)
+	{
+		size_t cur_len = strlen(argv[i]) + 1;
+		cur_rsp -= cur_len;
+		memcpy((void *)cur_rsp, argv[i], cur_len);
+		argv_ptr[i] = cur_rsp;
+	}
+	argv_ptr[argc] = NULL;
+	cur_rsp = cur_rsp & ~0x7;
+	for (int i = argc; i >= 0; i--)
+	{
+		cur_rsp -= sizeof(void *);
+		*(void **)cur_rsp = argv_ptr[i];
+	}
+	if_->R.rsi = cur_rsp; // argv_ptr[0]의 주소 -> rsi에 저장할 주소
+
+	// return address(dummy) 푸시
+	cur_rsp -= sizeof(void *);
+	memset((void *)cur_rsp, 0, sizeof(void *)); // 0으로 채워서 NULL로 만듬
+
+	if_->rsp = cur_rsp; // 스택 최상단(가장 낮은 주소) -> rsp에 저장할 주소
+	if_->R.rdi = argc;
 	success = true;
 
 done:
