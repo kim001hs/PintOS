@@ -80,13 +80,13 @@ initd(void *f_name)
 
 	struct thread *t = thread_current();
 	t->fd_table = malloc(sizeof(struct file *) * FD_TABLE_SIZE);
-	process_init();
 	if (t->fd_table == NULL)
 	{
 		PANIC("Failed to allocate fd_table for initd\n");
 	}
 	memset(t->fd_table, 0, sizeof(struct file *) * FD_TABLE_SIZE);
 	t->fd_table_size = FD_TABLE_SIZE;
+	process_init();
 
 	if (process_exec(f_name) < 0)
 		PANIC("Fail to launch initd\n");
@@ -209,11 +209,22 @@ static void __do_fork(void *aux)
 	for (int fd = 0; fd < parent->fd_table_size; fd++)
 	{
 		struct file *f = parent->fd_table[fd];
-		current->fd_table[fd] = f;
 		if (!f)
+		{
+			current->fd_table[fd] = NULL;
 			continue;
-		else if (f != STDIN && f != STDOUT)
-			increase_ref_count(current->fd_table[fd]);
+		}
+		else if (f == STDIN || f == STDOUT)
+		{
+			current->fd_table[fd] = f;
+		}
+		else
+		{
+			// Duplicate file to have independent file position
+			current->fd_table[fd] = file_duplicate(f);
+			if (current->fd_table[fd] == NULL)
+				goto error;
+		}
 	}
 
 	sema_up(&current->fork_sema);
@@ -343,21 +354,16 @@ void process_exit(void)
 	for (fd = 2; fd < curr->fd_table_size; fd++)
 	{ // 0은 표준 입력, 1은 표준 출력, 2는 표준 에러 출력
 		struct file *f = curr->fd_table[fd];
-		if (f != NULL)
+		if (f != NULL && f != STDIN && f != STDOUT)
 		{
-			file_close(f);			   // 열린 파일을 닫음
+			file_close(f); // 열린 파일을 닫음
 			curr->fd_table[fd] = NULL; // 파일 디스크립터를 NULL로 설정
 		}
 	}
-	// 정상적으로 실행했다면
-	if (curr->running_file != NULL)
-	{
-		file_close(curr->running_file);
-		curr->running_file = NULL;
-	}
+	// running_file은 process_cleanup에서 처리됨 (wait 전에 cleanup)
+	process_cleanup();
 	sema_up(&curr->wait_sema);
 	sema_down(&curr->exit_sema);
-	process_cleanup();
 	list_remove(&curr->child_elem);
 	free(curr->fd_table);
 }
@@ -367,6 +373,13 @@ process_cleanup(void)
 {
 	struct thread *curr = thread_current();
 	// free(curr->fd_table);
+
+	/* Close running file (file_close will call file_allow_write) */
+	if (curr->running_file != NULL)
+	{
+		file_close(curr->running_file);
+		curr->running_file = NULL;
+	}
 
 #ifdef VM
 	supplemental_page_table_kill(&curr->spt);
@@ -565,8 +578,6 @@ load(const char *file_name, struct intr_frame *if_)
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
 	success = true;
-	file_deny_write(file);
-	t->running_file = file;
 
 done:
 	/* We arrive here whether the load is successful or not. */

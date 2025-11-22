@@ -285,8 +285,10 @@ static int s_read(int fd, void *buffer, unsigned length)
 	struct file *f = thread_current()->fd_table[fd];
 	if (f == STDIN)
 	{
+		lock_acquire(&filesys_lock);
 		for (unsigned i = 0; i < length; i++)
 			((uint8_t *)buffer)[i] = input_getc();
+		lock_release(&filesys_lock);
 		return length;
 	}
 	if (f == NULL || f == STDOUT)
@@ -319,7 +321,9 @@ static int s_write(int fd, const void *buffer, unsigned length)
 	}
 	else if (curr_file == STDOUT)
 	{
+		lock_acquire(&filesys_lock);
 		putbuf(buffer, length);
+		lock_release(&filesys_lock);
 		return length;
 	}
 	// write 하기전에 lock
