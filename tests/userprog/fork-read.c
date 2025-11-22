@@ -7,7 +7,6 @@
 #include "tests/userprog/sample.inc"
 #include "tests/lib.h"
 #include "tests/main.h"
-#include "include/lib/user/syscall.h"
 
 void test_main(void)
 {
