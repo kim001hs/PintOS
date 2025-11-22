@@ -177,7 +177,7 @@ static void __do_fork(void *aux)
 	current->fd_table = malloc(sizeof(struct file *) * parent->fd_table_size);
 	if (current->fd_table == NULL)
 	{
-		PANIC("fd_table allocation failed.");
+		goto error;
 	}
 	process_init();
 	bool succ = true;
@@ -201,40 +201,62 @@ static void __do_fork(void *aux)
 #endif
 
 	/* 3. Duplicate file descriptor table */
-	// memcpy(current->fd_table, parent->fd_table, sizeof(current->fd_table));
+	// Need to maintain dup2 relationships: if multiple fds point to the same file,
+	// they should point to the same duplicated file in the child too.
 
-	// memset(current->fd_table, 0, sizeof(struct file *) * current->fd_table_size);
-	// memcpy(current->fd_table, parent->fd_table, sizeof(struct file *) * parent->fd_table_size);
-
+	// Simple approach: duplicate each fd independently and use ref_count within child
 	for (int fd = 0; fd < parent->fd_table_size; fd++)
 	{
 		struct file *f = parent->fd_table[fd];
 		if (!f)
 		{
 			current->fd_table[fd] = NULL;
-			continue;
 		}
-		else if (f == STDIN || f == STDOUT)
+		else if ((uintptr_t)f <= 2) // Handle STDIN(1) and STDOUT(2) sentinels
 		{
 			current->fd_table[fd] = f;
 		}
 		else
 		{
-			// Duplicate file to have independent file position
-			current->fd_table[fd] = file_duplicate(f);
-			if (current->fd_table[fd] == NULL)
-				goto error;
+			// Check if we've already duplicated this file object
+			struct file *dup_file = NULL;
+			for (int prev_fd = 0; prev_fd < fd; prev_fd++)
+			{
+				if (parent->fd_table[prev_fd] == f &&
+					current->fd_table[prev_fd] != NULL &&
+					(uintptr_t)current->fd_table[prev_fd] > 2) // Not STDIN(1) or STDOUT(2)
+				{
+					// Reuse the already duplicated file
+					dup_file = current->fd_table[prev_fd];
+					break;
+				}
+			}
+
+			if (dup_file != NULL)
+			{
+				// Multiple fds point to same file in parent, so reuse duplicate and increase ref_count
+				current->fd_table[fd] = dup_file;
+				increase_ref_count(dup_file);
+			}
+			else
+			{
+				// First time seeing this file object, duplicate it
+				current->fd_table[fd] = file_duplicate(f);
+				if (current->fd_table[fd] == NULL)
+					goto error;
+			}
 		}
 	}
-
-	sema_up(&current->fork_sema);
 	/* Finally, switch to the newly created process. */
 	if (succ)
 	{
+		sema_up(&current->fork_sema);
 		if_.R.rax = 0; // 자식 프로세스는 0을 반환
 		do_iret(&if_);
 	}
 error:
+	current->exit_status = -1;	  // Fork failed, set exit status to -1
+	sema_up(&current->fork_sema); // Signal parent even on error
 	thread_exit();
 }
 
@@ -350,22 +372,32 @@ void process_exit(void)
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
-	int fd;
-	for (fd = 2; fd < curr->fd_table_size; fd++)
-	{ // 0은 표준 입력, 1은 표준 출력, 2는 표준 에러 출력
-		struct file *f = curr->fd_table[fd];
-		if (f != NULL && f != STDIN && f != STDOUT)
-		{
-			file_close(f); // 열린 파일을 닫음
-			curr->fd_table[fd] = NULL; // 파일 디스크립터를 NULL로 설정
+
+	// Only clean up fd_table if it was successfully allocated
+	if (curr->fd_table != NULL)
+	{
+		int fd;
+		for (fd = 2; fd < curr->fd_table_size; fd++)
+		{ // 0은 표준 입력, 1은 표준 출력, 2는 표준 에러 출력
+			struct file *f = curr->fd_table[fd];
+			if (f != NULL && f != STDIN && f != STDOUT)
+			{
+				decrease_ref_count(f);
+				if (check_ref_count(f) == 0)
+				{
+					file_close(f); // 열린 파일을 닫음
+				}
+				curr->fd_table[fd] = NULL; // 파일 디스크립터를 NULL로 설정
+			}
 		}
+		free(curr->fd_table);
 	}
+
 	// running_file은 process_cleanup에서 처리됨 (wait 전에 cleanup)
 	process_cleanup();
 	sema_up(&curr->wait_sema);
 	sema_down(&curr->exit_sema);
 	list_remove(&curr->child_elem);
-	free(curr->fd_table);
 }
 
 static void

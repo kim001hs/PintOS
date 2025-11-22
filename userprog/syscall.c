@@ -142,8 +142,9 @@ void syscall_handler(struct intr_frame *f UNUSED)
 		// case SYS_SYMLINK:
 		// 	break;
 		// /* Extra for Project 2 */
-		// case SYS_DUP2:
-		// 	break;
+	case SYS_DUP2:
+		f->R.rax = s_dup2(f->R.rdi, f->R.rsi);
+		break;
 		// case SYS_MOUNT:
 		// 	break;
 		// case SYS_UMOUNT:
@@ -185,6 +186,10 @@ static int s_fork(const char *thread_name, struct intr_frame *f)
 		return TID_ERROR;
 
 	sema_down(&child->fork_sema);
+
+	// Check if child failed during __do_fork
+	if (child->exit_status == -1)
+		return TID_ERROR;
 
 	return child_tid;
 }
@@ -341,7 +346,7 @@ static void s_seek(int fd, unsigned position)
 	struct file *curr_file = thread_current()->fd_table[fd];
 	if (curr_file == NULL)
 	{
-		s_exit(-1);
+		return;
 	}
 	else if (curr_file == STDIN || curr_file == STDOUT)
 		return;
@@ -390,15 +395,40 @@ static void s_close(int fd)
 
 static int s_dup2(int oldfd, int newfd)
 {
-	// - `dup2()`는 `oldfd`를 복제하여 **지정된 번호인 `newfd`로 새로운 파일 디스크립터**를 생성합니다.
-	// - 성공 시 `newfd`를 반환합니다.
-	// ### 동작 규칙:
-	// - `oldfd`가 **유효하지 않으면**, 실패하며 `1`을 반환하고, `newfd`는 **닫히지 않습니다**.
-	// - `oldfd`와 `newfd`가 **같으면**, 아무 동작도 하지 않고 `newfd`를 반환합니다.
-	// - `newfd`가 **이미 열려 있는 경우**, **조용히 닫은 후에** `oldfd`를 복제합니다.
-	// - 복제된 디스크립터는 **파일 오프셋과 상태 플래그를 공유**합니다.
-	// 	- 예: `seek()`으로 하나의 파일 위치를 바꾸면, 다른 디스크립터도 같은 위치를 가리킵니다.
-	// - **`fork()` 이후에도 dup된 fd의 의미는 유지되어야 합니다.**
+	struct thread *t = thread_current();
+
+	// Check if oldfd is valid
+	if (oldfd < 0 || oldfd >= t->fd_table_size || t->fd_table[oldfd] == NULL)
+		return -1;
+
+	// Check if newfd is negative
+	if (newfd < 0)
+		return -1;
+
+	// If oldfd and newfd are the same, just return newfd
+	if (oldfd == newfd)
+		return newfd;
+
+	// Expand fd_table if needed
+	while (newfd >= t->fd_table_size)
+	{
+		if (realloc_fd_table(t) == -1)
+			return -1;
+	}
+
+	// Close newfd if it's already open
+	if (t->fd_table[newfd] != NULL)
+		s_close(newfd);
+
+	// Duplicate the file descriptor
+	struct file *f = t->fd_table[oldfd];
+	t->fd_table[newfd] = f;
+
+	// Increase reference count for shared file
+	if (f != STDIN && f != STDOUT)
+		increase_ref_count(f);
+
+	return newfd;
 }
 
 static void s_check_access(const char *file)
