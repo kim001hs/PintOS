@@ -199,10 +199,6 @@ static void __do_fork(void *aux)
 #endif
 
 	/* 3. Duplicate file descriptor table */
-	// Need to maintain dup2 relationships: if multiple fds point to the same file,
-	// they should point to the same duplicated file in the child too.
-
-	// Simple approach: duplicate each fd independently and use ref_count within child
 	for (int fd = 0; fd < parent->fd_table_size; fd++)
 	{
 		struct file *f = parent->fd_table[fd];
@@ -301,7 +297,6 @@ int process_wait(tid_t child_tid)
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	struct thread *cur = thread_current();
 	struct thread *child = get_thread_by_tid(child_tid);
 	int exit_code = -1;
 	if (child == NULL || child->waited)
@@ -584,7 +579,7 @@ load(const char *file_name, struct intr_frame *if_)
 		size_t cur_len = strlen(argv[i]) + 1;
 		cur_rsp -= cur_len;
 		memcpy((void *)cur_rsp, argv[i], cur_len);
-		argv_ptr[i] = cur_rsp;
+		argv_ptr[i] = (void *)cur_rsp;
 	}
 	argv_ptr[argc] = NULL;
 	cur_rsp = cur_rsp & ~0x7;
