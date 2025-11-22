@@ -103,6 +103,7 @@ tid_t process_fork(const char *name, struct intr_frame *if_)
 	return thread_create(name, PRI_DEFAULT, __do_fork, aux);
 }
 
+// 자식의 tid로 스레드 찾기
 struct thread *get_thread_by_tid(tid_t child_tid)
 {
 	struct thread *current = thread_current();
