@@ -216,7 +216,8 @@ static void __do_fork(void *aux)
 			struct file *dup_file = NULL;
 			for (int prev_fd = 0; prev_fd < fd; prev_fd++)
 			{
-				if (parent->fd_table[prev_fd] == f && current->fd_table[prev_fd] != NULL && (uintptr_t)current->fd_table[prev_fd] > 2)
+				struct file *prev_f = current->fd_table[prev_fd]; // 앞에서 duplicate한 파일
+				if (parent->fd_table[prev_fd] == f && prev_f != NULL && prev_f != STDIN && prev_f != STDOUT)
 				{
 					// dup2되어있으면 파일 새로 만드는 대신 포인터만 복사
 					dup_file = current->fd_table[prev_fd];
