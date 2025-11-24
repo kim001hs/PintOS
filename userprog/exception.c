@@ -151,7 +151,7 @@ page_fault(struct intr_frame *f)
 
 	/* Count page faults. */
 	page_fault_cnt++;
-	if (user)
+	if (user || is_user_vaddr(fault_addr))
 	{
 		s_exit(-1);
 		NOT_REACHED(); // 이 라인이 실행되면 안됨, 디버깅용

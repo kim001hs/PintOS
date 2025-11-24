@@ -77,16 +77,11 @@ initd(void *f_name)
 #endif
 
 	process_init();
-	struct thread *t = thread_current();
-	t->fd_table = malloc(sizeof(struct file *) * FD_TABLE_SIZE);
-	if (t->fd_table == NULL)
-	{
-		PANIC("Failed to allocate fd_table for initd\n");
-	}
-	memset(t->fd_table, 0, sizeof(struct file *) * FD_TABLE_SIZE);
-	t->fd_table_size = FD_TABLE_SIZE;
-	t->fd_table[STDIN_FILENO] = 1;
-	t->fd_table[STDOUT_FILENO] = 1;
+	struct thread *current = thread_current();
+	current->fd_table = calloc(FD_TABLE_SIZE, sizeof(struct file_entry *));
+	if (current->fd_table == NULL)
+		PANIC("Failed to allocate fd_table");
+	current->fd_table_size = FD_TABLE_SIZE;
 
 	if (process_exec(f_name) < 0)
 		PANIC("Fail to launch initd\n");
@@ -120,8 +115,8 @@ struct thread *get_thread_by_tid(tid_t child_tid)
 }
 
 #ifndef VM
-/* Duplicate the parent's address space by passing this function to the
- * pml4_for_each. This is only for the project 2. */
+/* Duplicate the parent's address space by passing this function to
+ * pml4_for_each. Project 2 only. */
 static bool
 duplicate_pte(uint64_t *pte, void *va, void *aux)
 {
@@ -131,33 +126,31 @@ duplicate_pte(uint64_t *pte, void *va, void *aux)
 	void *newpage;
 	bool writable;
 
-	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
+	/* 1. Ignore kernel virtual addresses. */
 	if (is_kernel_vaddr(va))
 		return true;
-	/* 2. Resolve VA from the parent's page map level 4. */
-	parent_page = pml4_get_page(parent->pml4, va);
 
-	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
-	 *    TODO: NEWPAGE. */
-	newpage = palloc_get_page(PAL_USER | PAL_ZERO); // 유저 공간에 페이지 할당하고 0으로 초기화
-	/* 4. TODO: Duplicate parent's page to the new page and
-	 *    TODO: check whether parent's page is writable or not (set WRITABLE
-	 *    TODO: according to the result). */
-	if (newpage == NULL)
-		return false;
-	else if (parent_page == NULL)
+	/* 2. Get the parent's mapping for VA.  If unmapped, nothing to copy. */
+	parent_page = pml4_get_page(parent->pml4, va);
+	if (parent_page == NULL)
 		return true;
 
+	/* 3. Allocate a new user page for the child. */
+	newpage = palloc_get_page(PAL_USER | PAL_ZERO);
+	if (newpage == NULL)
+		return false;
+
+	/* 4. Copy contents and preserve writability bit. */
 	memcpy(newpage, parent_page, PGSIZE);
 	writable = is_writable(pte);
-	/* 5. Add new page to child's page table at address VA with WRITABLE
-	 *    permission. */
+
+	/* 5. Map into child's page table.  On failure, free and abort. */
 	if (!pml4_set_page(current->pml4, va, newpage, writable))
 	{
-		/* 6. TODO: if fail to insert page, do error handling. */
 		palloc_free_page(newpage);
 		return false;
 	}
+
 	return true;
 }
 #endif
@@ -177,7 +170,7 @@ static void __do_fork(void *aux)
 	bool succ = true;
 	/* 1. Read the cpu context to local stack. */
 	memcpy(&if_, parent_if, sizeof(struct intr_frame));
-
+	current->tf = parent->tf;
 	/* 2. Duplicate PT */
 	current->pml4 = pml4_create();
 	if (current->pml4 == NULL)
@@ -195,39 +188,57 @@ static void __do_fork(void *aux)
 #endif
 
 	/* 3. Duplicate file descriptor table */
-	// memcpy(current->fd_table, parent->fd_table, sizeof(current->fd_table));
+	current->is_stdin_open = parent->is_stdin_open;
+	current->is_stdout_open = parent->is_stdout_open;
 	current->fd_table_size = parent->fd_table_size;
-	current->fd_table = malloc(sizeof(struct file *) * parent->fd_table_size);
+	current->fd_table = calloc(parent->fd_table_size, sizeof(struct file_entry *));
 	if (current->fd_table == NULL)
 	{
 		PANIC("fd_table allocation failed.");
 	}
-
-	// memset(current->fd_table, 0, sizeof(struct file *) * current->fd_table_size);
-	// memcpy(current->fd_table, parent->fd_table, sizeof(struct file *) * parent->fd_table_size);
+	// mapping용 메모리, 함수 끝나기 전에 삭제
+	struct file_entry **parent_seen = calloc(parent->fd_table_size, sizeof(struct file_entry *));
+	struct file_entry **child_entries = calloc(parent->fd_table_size, sizeof(struct file_entry *));
+	int seen_count = 0;
 
 	for (int fd = 0; fd < parent->fd_table_size; fd++)
 	{
-		struct file *f = parent->fd_table[fd];
-
-		if (f == NULL)
+		struct file_entry *p = parent->fd_table[fd];
+		if (p == NULL)
+			continue;
+		// looking for existing mapping
+		int idx = -1;
+		for (int i = 0; i < seen_count; i++)
 		{
-			current->fd_table[fd] = NULL;
+			if (parent_seen[i] == p)
+			{
+				idx = i;
+				break;
+			}
+		}
+
+		if (idx != -1)
+		{
+			// reuse previously duplicated file_entry
+			struct file_entry *cfe = child_entries[idx];
+			cfe->refcnt++;
+			current->fd_table[fd] = cfe;
 			continue;
 		}
+		// first time seeing this file entry -> duplicate file
+		struct file_entry *cfe = calloc(1, sizeof(struct file_entry));
+		if (cfe == NULL)
+			PANIC("file entry failed");
+		cfe->file = file_duplicate(p->file);
+		cfe->refcnt = 1;
+		parent_seen[seen_count] = p;
+		child_entries[seen_count] = cfe;
+		seen_count++;
 
-		if (fd == 0 || fd == 1)
-		{
-			/* stdin(0) and stdout(1): shared */
-			current->fd_table[fd] = f;
-		}
-		else
-		{
-			/* duplicate file for the child */
-			current->fd_table[fd] = file_duplicate(f);
-		}
+		current->fd_table[fd] = cfe;
 	}
-
+	free(parent_seen);
+	free(child_entries);
 	sema_up(&current->fork_sema);
 	/* Finally, switch to the newly created process. */
 	if (succ)
@@ -347,31 +358,46 @@ int process_wait(tid_t child_tid)
 void process_exit(void)
 {
 	struct thread *curr = thread_current();
-	/* TODO: Your code goes here.
-	 * TODO: Implement process termination message (see
-	 * TODO: project2/process_termination.html).
-	 * TODO: We recommend you to implement process resource cleanup here. */
-	int fd;
-	for (fd = 2; fd < curr->fd_table_size; fd++)
-	{ // 0은 표준 입력, 1은 표준 출력, 2는 표준 에러 출력
-		struct file *f = curr->fd_table[fd];
-		if (f != NULL)
+
+	/* Close all file descriptors owned by this process. */
+	if (curr->fd_table != NULL)
+	{
+		for (int fd = 0; fd < curr->fd_table_size; fd++)
 		{
-			file_close(f);			   // 열린 파일을 닫음
-			curr->fd_table[fd] = NULL; // 파일 디스크립터를 NULL로 설정
+			struct file_entry *fe = curr->fd_table[fd];
+			if (fe != NULL)
+			{
+				/* Detach from fd table first to avoid dangling pointers. */
+				curr->fd_table[fd] = NULL;
+
+				ASSERT(fe->refcnt > 0);
+				int new_ref = --fe->refcnt;
+				ASSERT(new_ref >= 0);
+				if (new_ref == 0)
+				{
+					file_close(fe->file);
+					free(fe);
+				}
+			}
 		}
+		free(curr->fd_table);
+		curr->fd_table = NULL;
+		curr->fd_table_size = 0;
 	}
-	// 정상적으로 실행했다면
+
+	/* Close running executable, if any. */
 	if (curr->running_file != NULL)
 	{
 		file_close(curr->running_file);
 		curr->running_file = NULL;
 	}
+
+	/* Parent/child synchronization. */
 	sema_up(&curr->wait_sema);
 	sema_down(&curr->exit_sema);
+
 	process_cleanup();
 	list_remove(&curr->child_elem);
-	free(curr->fd_table);
 }
 
 static void
@@ -577,8 +603,6 @@ load(const char *file_name, struct intr_frame *if_)
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
 	success = true;
-	file_deny_write(file);
-	t->running_file = file;
 
 done:
 	/* We arrive here whether the load is successful or not. */

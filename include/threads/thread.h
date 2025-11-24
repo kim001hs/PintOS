@@ -97,6 +97,11 @@ typedef int tid_t;
  * @param int64_t wakeup_tick	 	// 일어날 시간
  * @param struct list locks_hold 	// 스레드가 가지고 있는 락의 리스트 정렬없음
  */
+struct file_entry
+{
+	struct file *file;
+	int refcnt;
+};
 struct thread
 {
 	/* Owned by thread.c. */
@@ -120,7 +125,7 @@ struct thread
 	uint64_t *pml4; /* Page map level 4 */
 	// userprog
 	int exit_status;
-	struct file **fd_table;
+	struct file_entry **fd_table;
 	int fd_table_size;
 	struct semaphore fork_sema;
 	struct semaphore wait_sema;
@@ -129,6 +134,9 @@ struct thread
 	struct list child_list;
 	struct list_elem child_elem;
 	struct file *running_file; /* 이 스레드가 실행 중인 실행 파일(executable)을 가리키는 포인터 (load()시 저장) */
+	bool is_stdin_open;
+	bool is_stdout_open;
+	bool fork_success;
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
