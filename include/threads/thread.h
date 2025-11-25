@@ -97,10 +97,18 @@ typedef int tid_t;
  * @param int64_t wakeup_tick	 	// 일어날 시간
  * @param struct list locks_hold 	// 스레드가 가지고 있는 락의 리스트 정렬없음
  */
+enum fd_entry_type
+{
+	FD_ENTRY_FILE = 0,
+	FD_ENTRY_STDIN,
+	FD_ENTRY_STDOUT
+};
+
 struct file_entry
 {
 	struct file *file;
 	int refcnt;
+	enum fd_entry_type type;
 };
 struct thread
 {

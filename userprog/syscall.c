@@ -8,6 +8,7 @@
 #include "threads/flags.h"
 #include "intrinsic.h"
 #include "threads/synch.h"
+#include "devices/input.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "userprog/process.h"
@@ -186,6 +187,12 @@ static int s_fork(const char *thread_name, struct intr_frame *f)
 
 	sema_down(&child->fork_sema);
 
+	if (!child->fork_success)
+	{
+		process_wait(child_tid);
+		return TID_ERROR;
+	}
+
 	return child_tid;
 }
 
@@ -240,14 +247,6 @@ static int s_open(const char *file)
 
 	for (int i = 0; i < t->fd_table_size; i++)
 	{
-		/* skip stdin only if it is OPEN */
-		if (i == 0 && t->is_stdin_open)
-			continue;
-
-		/* skip stdout only if it is OPEN */
-		if (i == 1 && t->is_stdout_open)
-			continue;
-
 		if (t->fd_table[i] == NULL)
 		{
 			fd = i;
@@ -276,6 +275,7 @@ static int s_open(const char *file)
 	}
 	t->fd_table[fd]->file = target_file;
 	t->fd_table[fd]->refcnt = 1;
+	t->fd_table[fd]->type = FD_ENTRY_FILE;
 	return fd;
 }
 
@@ -284,15 +284,12 @@ static int s_filesize(int fd)
 	s_check_fd(fd);
 	struct thread *t = thread_current();
 
-	/* stdin/stdout: defined to just return 0 (no real file). */
-	if ((fd == 0 && t->is_stdin_open) ||
-		(fd == 1 && t->is_stdout_open))
-	{
-		return 0;
-	}
-
 	struct file_entry *fe = t->fd_table[fd];
-	if (fe == NULL || fe->file == NULL)
+	if (fe == NULL)
+		return -1;
+	if (fe->type != FD_ENTRY_FILE)
+		return 0;
+	if (fe->file == NULL)
 		return -1;
 
 	int size;
@@ -306,28 +303,28 @@ static int s_read(int fd, void *buffer, unsigned length)
 {
 	s_check_buffer(buffer, length);
 	s_check_fd(fd);
-	// printf("[DEBUG] before read: fd=%d len=%u\n", fd, length);
-	if (fd == 0 && thread_current()->fd_table[0] == NULL && thread_current()->is_stdin_open)
+
+	struct thread *t = thread_current();
+	struct file_entry *fe = t->fd_table[fd];
+	if (fe == NULL)
+		return -1;
+
+	if (fe->type == FD_ENTRY_STDIN)
 	{
 		for (unsigned i = 0; i < length; i++)
 			((uint8_t *)buffer)[i] = input_getc();
-		// printf("[DEBUG] console read: fd=0 len=%u\n", length);
 		return length;
 	}
-
-	// 3. 파일 디스크립터에서 파일 찾기
-	struct file_entry *fe = thread_current()->fd_table[fd];
-	if (fe == NULL)
+	if (fe->type == FD_ENTRY_STDOUT)
 		return -1;
+
 	struct file *f = fe->file;
 	if (f == NULL)
 		return -1;
 
-	// 4. 파일 읽기
 	lock_acquire(&filesys_lock);
 	int bytes_read = file_read(f, buffer, length);
 	lock_release(&filesys_lock);
-	// printf("[DEBUG] file read: fd=%d requested=%u got=%d\n", fd, length, bytes_read);
 	return bytes_read;
 }
 
@@ -339,25 +336,23 @@ static int s_write(int fd, const void *buffer, unsigned length)
 	s_check_buffer(buffer, length);
 	s_check_fd(fd);
 
-	// 콘솔 출력
-	if (fd == 1 && thread_current()->fd_table[1] == NULL && thread_current()->is_stdout_open)
+	struct thread *t = thread_current();
+	struct file_entry *fe = t->fd_table[fd];
+	if (fe == NULL)
+		return -1;
+
+	if (fe->type == FD_ENTRY_STDOUT)
 	{
 		putbuf(buffer, length);
 		return length;
 	}
-	if (fd == 0 && thread_current()->is_stdin_open && thread_current()->fd_table[0] == NULL)
+	if (fe->type == FD_ENTRY_STDIN)
 		return -1;
 
-	// 파일에 write 하기
-	struct file_entry *fe = thread_current()->fd_table[fd];
-	// 파일을 못 가져오면
-	if (fe == NULL)
-		return -1;
 	struct file *f = fe->file;
 	if (f == NULL)
 		return -1;
 
-	// write 하기전에 lock
 	lock_acquire(&filesys_lock);
 	int written = file_write(f, buffer, length); // file.h
 	lock_release(&filesys_lock);
@@ -368,16 +363,12 @@ static int s_write(int fd, const void *buffer, unsigned length)
 static void s_seek(int fd, unsigned position)
 {
 	s_check_fd(fd);
-	// stdin(0)과 stdout(1)은 seek 의미가 없으므로, 오류를 내지 않고 그대로 무시
-	if ((fd == 0 && thread_current()->is_stdin_open) || (fd == 1 && thread_current()->is_stdout_open))
-	{
-		return;
-	}
-	struct file_entry *fe = thread_current()->fd_table[fd];
+	struct thread *t = thread_current();
+	struct file_entry *fe = t->fd_table[fd];
 	if (fe == NULL)
 		return;
 	struct file *f = fe->file;
-	if (f == NULL)
+	if (fe->type != FD_ENTRY_FILE || f == NULL)
 		return;
 	lock_acquire(&filesys_lock);
 	file_seek(f, position);
@@ -387,15 +378,12 @@ static void s_seek(int fd, unsigned position)
 static unsigned s_tell(int fd)
 {
 	s_check_fd(fd);
-	if ((fd == 0 && thread_current()->is_stdin_open) || (fd == 1 && thread_current()->is_stdout_open))
-	{
-		return 0;
-	}
-	struct file_entry *fe = thread_current()->fd_table[fd];
+	struct thread *t = thread_current();
+	struct file_entry *fe = t->fd_table[fd];
 	if (fe == NULL)
 		return 0;
 	struct file *f = fe->file;
-	if (f == NULL)
+	if (fe->type != FD_ENTRY_FILE || f == NULL)
 		return 0;
 	lock_acquire(&filesys_lock);
 	off_t next_byte = file_tell(f);
@@ -409,30 +397,6 @@ static void s_close(int fd)
 	struct thread *t = thread_current();
 	struct file_entry *fe = t->fd_table[fd];
 
-	/* stdin / stdout: just mark closed in this thread */
-	if (fd == 0)
-	{
-		if (fe == NULL)
-		{
-			// stdin is console; mark it closed
-			t->is_stdin_open = false;
-			return;
-		}
-		// if fe != NULL, stdin has been dup2'ed to a file:
-		// fall through to normal file closing logic
-	}
-	else if (fd == 1)
-	{
-		if (fe == NULL)
-		{
-			// stdout is console; mark it closed
-			t->is_stdout_open = false;
-			return;
-		}
-		// if fe != NULL, stdout has been dup2'ed to a file:
-		// fall through to normal file closing logic
-	}
-
 	if (fe == NULL)
 		return;
 
@@ -440,17 +404,25 @@ static void s_close(int fd)
 	t->fd_table[fd] = NULL;
 
 	/* 2. Safely adjust refcount & possibly free. */
-	lock_acquire(&filesys_lock);
 	ASSERT(fe->refcnt > 0);
 
 	int new_ref = --fe->refcnt;
 	ASSERT(new_ref >= 0);
-	if (new_ref == 0)
+	if (fe->type == FD_ENTRY_FILE)
 	{
-		file_close(fe->file);
-		free(fe);
+		lock_acquire(&filesys_lock);
+		if (new_ref == 0)
+		{
+			file_close(fe->file);
+			free(fe);
+		}
+		lock_release(&filesys_lock);
 	}
-	lock_release(&filesys_lock);
+	else
+	{
+		if (new_ref == 0)
+			free(fe);
+	}
 }
 
 static int s_dup2(int oldfd, int newfd)
@@ -466,6 +438,8 @@ static int s_dup2(int oldfd, int newfd)
 		return -1;
 	if (t->fd_table[oldfd] == NULL)
 		return -1;
+	if (newfd < 0)
+		return -1;
 
 	/* ensure capacity */
 	if (newfd >= t->fd_table_size)
@@ -475,10 +449,11 @@ static int s_dup2(int oldfd, int newfd)
 	}
 
 	/* close newfd if open */
-	// if (t->fd_table[newfd] != NULL)
-	s_close(newfd);
+	if (t->fd_table[newfd] != NULL)
+		s_close(newfd);
 
 	/* duplicate */
+
 	t->fd_table[newfd] = t->fd_table[oldfd];
 	t->fd_table[newfd]->refcnt++;
 

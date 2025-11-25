@@ -34,6 +34,8 @@ static void initd(void *f_name);
 static void __do_fork(void *aux);
 static int64_t get_user(const uint8_t *uaddr);
 static bool put_user(uint8_t *udst, uint8_t byte);
+static struct file_entry *create_console_entry(enum fd_entry_type type);
+static void install_standard_fds(struct thread *t);
 /* General process initializer for initd and other process. */
 static void
 process_init(void)
@@ -41,6 +43,34 @@ process_init(void)
 	struct thread *current = thread_current();
 	current->exit_status = 0;
 	current->waited = false;
+}
+
+static struct file_entry *
+create_console_entry(enum fd_entry_type type)
+{
+	struct file_entry *fe = calloc(1, sizeof(struct file_entry));
+	if (fe == NULL)
+		return NULL;
+	fe->file = NULL;
+	fe->refcnt = 1;
+	fe->type = type;
+	return fe;
+}
+
+static void
+install_standard_fds(struct thread *t)
+{
+	if (t->fd_table_size < 2)
+		return;
+
+	t->fd_table[0] = create_console_entry(FD_ENTRY_STDIN);
+	t->fd_table[1] = create_console_entry(FD_ENTRY_STDOUT);
+
+	if (t->fd_table[0] == NULL || t->fd_table[1] == NULL)
+		PANIC("Failed to allocate stdio entries");
+
+	t->is_stdin_open = true;
+	t->is_stdout_open = true;
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -82,6 +112,7 @@ initd(void *f_name)
 	if (current->fd_table == NULL)
 		PANIC("Failed to allocate fd_table");
 	current->fd_table_size = FD_TABLE_SIZE;
+	install_standard_fds(current);
 
 	if (process_exec(f_name) < 0)
 		PANIC("Fail to launch initd\n");
@@ -167,24 +198,27 @@ static void __do_fork(void *aux)
 	struct thread *parent = ((struct aux *)aux)->thread;
 	struct intr_frame *parent_if = ((struct aux *)aux)->if_;
 	free(aux);
-	bool succ = true;
+	bool success = false;
+	struct file_entry **parent_seen = NULL;
+	struct file_entry **child_entries = NULL;
+	int seen_count = 0;
 	/* 1. Read the cpu context to local stack. */
 	memcpy(&if_, parent_if, sizeof(struct intr_frame));
 	current->tf = parent->tf;
 	/* 2. Duplicate PT */
 	current->pml4 = pml4_create();
 	if (current->pml4 == NULL)
-		goto error;
+		goto fail;
 
 	process_activate(current);
 
 #ifdef VM
 	supplemental_page_table_init(&current->spt);
 	if (!supplemental_page_table_copy(&current->spt, &parent->spt))
-		goto error;
+		goto fail;
 #else
 	if (!pml4_for_each(parent->pml4, duplicate_pte, parent))
-		goto error;
+		goto fail;
 #endif
 
 	/* 3. Duplicate file descriptor table */
@@ -193,13 +227,12 @@ static void __do_fork(void *aux)
 	current->fd_table_size = parent->fd_table_size;
 	current->fd_table = calloc(parent->fd_table_size, sizeof(struct file_entry *));
 	if (current->fd_table == NULL)
-	{
-		PANIC("fd_table allocation failed.");
-	}
+		goto fail;
 	// mapping용 메모리, 함수 끝나기 전에 삭제
-	struct file_entry **parent_seen = calloc(parent->fd_table_size, sizeof(struct file_entry *));
-	struct file_entry **child_entries = calloc(parent->fd_table_size, sizeof(struct file_entry *));
-	int seen_count = 0;
+	parent_seen = calloc(parent->fd_table_size, sizeof(struct file_entry *));
+	child_entries = calloc(parent->fd_table_size, sizeof(struct file_entry *));
+	if (parent_seen == NULL || child_entries == NULL)
+		goto fail;
 
 	for (int fd = 0; fd < parent->fd_table_size; fd++)
 	{
@@ -225,28 +258,68 @@ static void __do_fork(void *aux)
 			current->fd_table[fd] = cfe;
 			continue;
 		}
-		// first time seeing this file entry -> duplicate file
+		// first time seeing this file entry -> duplicate
 		struct file_entry *cfe = calloc(1, sizeof(struct file_entry));
 		if (cfe == NULL)
-			PANIC("file entry failed");
-		cfe->file = file_duplicate(p->file);
+			goto fail;
 		cfe->refcnt = 1;
+		cfe->type = p->type;
+		if (p->type == FD_ENTRY_FILE)
+		{
+			cfe->file = file_duplicate(p->file);
+			if (cfe->file == NULL)
+			{
+				free(cfe);
+				goto fail;
+			}
+		}
+		else
+		{
+			cfe->file = NULL;
+		}
 		parent_seen[seen_count] = p;
 		child_entries[seen_count] = cfe;
 		seen_count++;
 
 		current->fd_table[fd] = cfe;
 	}
-	free(parent_seen);
-	free(child_entries);
+	success = true;
+
+fail:
+	if (!success)
+	{
+		if (child_entries != NULL)
+		{
+			for (int i = 0; i < seen_count; i++)
+			{
+				struct file_entry *cfe = child_entries[i];
+				if (cfe == NULL)
+					continue;
+				if (cfe->type == FD_ENTRY_FILE && cfe->file != NULL)
+					file_close(cfe->file);
+				free(cfe);
+			}
+		}
+		if (current->fd_table != NULL)
+		{
+			free(current->fd_table);
+			current->fd_table = NULL;
+			current->fd_table_size = 0;
+		}
+		current->exit_status = -1;
+	}
+	if (parent_seen != NULL)
+		free(parent_seen);
+	if (child_entries != NULL)
+		free(child_entries);
+	current->fork_success = success;
 	sema_up(&current->fork_sema);
 	/* Finally, switch to the newly created process. */
-	if (succ)
+	if (success)
 	{
 		if_.R.rax = 0; // 자식 프로세스는 0을 반환
 		do_iret(&if_);
 	}
-error:
 	thread_exit();
 }
 
@@ -375,7 +448,10 @@ void process_exit(void)
 				ASSERT(new_ref >= 0);
 				if (new_ref == 0)
 				{
-					file_close(fe->file);
+					if (fe->type == FD_ENTRY_FILE && fe->file != NULL)
+					{
+						file_close(fe->file);
+					}
 					free(fe);
 				}
 			}
