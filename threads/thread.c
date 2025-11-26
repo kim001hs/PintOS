@@ -561,9 +561,6 @@ init_thread(struct thread *t, const char *name, int priority)
 		t->nice = 0;
 		t->recent_cpu = 0;
 	}
-	// userprog
-	t->is_stdin_open = true;
-	t->is_stdout_open = true;
 	/* Add to all threads list. */
 	list_push_back(&all_list, &t->all_elem);
 }

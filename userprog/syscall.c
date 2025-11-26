@@ -400,14 +400,9 @@ static void s_close(int fd)
 	if (fe == NULL)
 		return;
 
-	/* 1. Detach fd from table first to avoid dangling pointer races. */
 	t->fd_table[fd] = NULL;
 
-	/* 2. Safely adjust refcount & possibly free. */
-	ASSERT(fe->refcnt > 0);
-
 	int new_ref = --fe->refcnt;
-	ASSERT(new_ref >= 0);
 	if (fe->type == FD_ENTRY_FILE)
 	{
 		lock_acquire(&filesys_lock);

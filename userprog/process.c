@@ -68,9 +68,6 @@ install_standard_fds(struct thread *t)
 
 	if (t->fd_table[0] == NULL || t->fd_table[1] == NULL)
 		PANIC("Failed to allocate stdio entries");
-
-	t->is_stdin_open = true;
-	t->is_stdout_open = true;
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -222,8 +219,6 @@ static void __do_fork(void *aux)
 #endif
 
 	/* 3. Duplicate file descriptor table */
-	current->is_stdin_open = parent->is_stdin_open;
-	current->is_stdout_open = parent->is_stdout_open;
 	current->fd_table_size = parent->fd_table_size;
 	current->fd_table = calloc(parent->fd_table_size, sizeof(struct file_entry *));
 	if (current->fd_table == NULL)

@@ -142,8 +142,6 @@ struct thread
 	struct list child_list;
 	struct list_elem child_elem;
 	struct file *running_file; /* 이 스레드가 실행 중인 실행 파일(executable)을 가리키는 포인터 (load()시 저장) */
-	bool is_stdin_open;
-	bool is_stdout_open;
 	bool fork_success;
 #endif
 #ifdef VM
