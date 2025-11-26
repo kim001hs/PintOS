@@ -1,6 +1,6 @@
 #include "list.h"
 #include "../debug.h"
-
+#include "threads/interrupt.h"
 /* Our doubly linked lists have two header elements: the "head"
    just before the first element and the "tail" just after the
    last element.  The `prev' link of the front header is null, as
@@ -403,6 +403,7 @@ inplace_merge(struct list_elem *a0, struct list_elem *a1b0,
    O(1) space in the number of elements in LIST. */
 void list_sort(struct list *list, list_less_func *less, void *aux)
 {
+	enum intr_level old_level = intr_disable();
 	size_t output_run_cnt; /* Number of runs output in current pass. */
 
 	ASSERT(list != NULL);
@@ -435,6 +436,7 @@ void list_sort(struct list *list, list_less_func *less, void *aux)
 	} while (output_run_cnt > 1);
 
 	ASSERT(is_sorted(list_begin(list), list_end(list), less, aux));
+	intr_set_level(old_level);
 }
 
 /* Inserts ELEM in the proper position in LIST, which must be

@@ -212,6 +212,7 @@ tid_t thread_create(const char *name, int priority,
 	t->tf.ss = SEL_KDSEG;
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
+#ifdef USERPROG
 	if (t != initial_thread)
 	{
 		sema_init(&t->fork_sema, 0);
@@ -222,6 +223,7 @@ tid_t thread_create(const char *name, int priority,
 			list_push_back(&thread_current()->child_list, &t->child_elem);
 		}
 	}
+#endif
 	thread_unblock(t);
 	preempt_priority();
 	return tid;

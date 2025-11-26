@@ -32,8 +32,6 @@ static void process_cleanup(void);
 static bool load(const char *file_name, struct intr_frame *if_);
 static void initd(void *f_name);
 static void __do_fork(void *aux);
-static int64_t get_user(const uint8_t *uaddr);
-static bool put_user(uint8_t *udst, uint8_t byte);
 /* General process initializer for initd and other process. */
 static void
 process_init(void)
@@ -41,6 +39,8 @@ process_init(void)
 	struct thread *current = thread_current();
 	current->exit_status = 0;
 	current->waited = false;
+	current->fd_table[STDIN_FILENO] = STDIN;
+	current->fd_table[STDOUT_FILENO] = STDOUT;
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -76,6 +76,14 @@ initd(void *f_name)
 	supplemental_page_table_init(&thread_current()->spt);
 #endif
 
+	struct thread *t = thread_current();
+	t->fd_table = malloc(sizeof(struct file *) * FD_TABLE_SIZE);
+	if (t->fd_table == NULL)
+	{
+		PANIC("Failed to allocate fd_table for initd\n");
+	}
+	memset(t->fd_table, 0, sizeof(struct file *) * FD_TABLE_SIZE);
+	t->fd_table_size = FD_TABLE_SIZE;
 	process_init();
 	struct thread *t = thread_current();
 	t->fd_table = malloc(sizeof(struct file *) * FD_TABLE_SIZE);
@@ -105,6 +113,7 @@ tid_t process_fork(const char *name, struct intr_frame *if_)
 	return thread_create(name, PRI_DEFAULT, __do_fork, aux);
 }
 
+// 자식의 tid로 스레드 찾기
 struct thread *get_thread_by_tid(tid_t child_tid)
 {
 	struct thread *current = thread_current();
@@ -170,10 +179,16 @@ static void __do_fork(void *aux)
 {
 	struct intr_frame if_;
 	struct thread *current = thread_current();
-	process_init();
 	struct thread *parent = ((struct aux *)aux)->thread;
 	struct intr_frame *parent_if = ((struct aux *)aux)->if_;
 	free(aux);
+	current->fd_table_size = parent->fd_table_size;
+	current->fd_table = malloc(sizeof(struct file *) * parent->fd_table_size);
+	if (current->fd_table == NULL)
+	{
+		goto error;
+	}
+	process_init();
 	bool succ = true;
 	/* 1. Read the cpu context to local stack. */
 	memcpy(&if_, parent_if, sizeof(struct intr_frame));
@@ -195,47 +210,55 @@ static void __do_fork(void *aux)
 #endif
 
 	/* 3. Duplicate file descriptor table */
-	// memcpy(current->fd_table, parent->fd_table, sizeof(current->fd_table));
-	current->fd_table_size = parent->fd_table_size;
-	current->fd_table = malloc(sizeof(struct file *) * parent->fd_table_size);
-	if (current->fd_table == NULL)
-	{
-		PANIC("fd_table allocation failed.");
-	}
-
-	// memset(current->fd_table, 0, sizeof(struct file *) * current->fd_table_size);
-	// memcpy(current->fd_table, parent->fd_table, sizeof(struct file *) * parent->fd_table_size);
-
 	for (int fd = 0; fd < parent->fd_table_size; fd++)
 	{
 		struct file *f = parent->fd_table[fd];
-
-		if (f == NULL)
+		if (!f)
 		{
 			current->fd_table[fd] = NULL;
-			continue;
 		}
-
-		if (fd == 0 || fd == 1)
+		else if (f == STDIN || f == STDOUT)
 		{
-			/* stdin(0) and stdout(1): shared */
 			current->fd_table[fd] = f;
 		}
 		else
 		{
-			/* duplicate file for the child */
-			current->fd_table[fd] = file_duplicate(f);
+			struct file *dup_file = NULL;
+			for (int prev_fd = 0; prev_fd < fd; prev_fd++)
+			{
+				struct file *prev_f = current->fd_table[prev_fd]; // 앞에서 duplicate한 파일
+				if (parent->fd_table[prev_fd] == f && prev_f != NULL && prev_f != STDIN && prev_f != STDOUT)
+				{
+					// dup2되어있으면 파일 새로 만드는 대신 포인터만 복사
+					dup_file = current->fd_table[prev_fd];
+					break;
+				}
+			}
+
+			if (dup_file != NULL)
+			{
+				current->fd_table[fd] = dup_file;
+				increase_ref_count(dup_file);
+			}
+			else
+			{
+				// 아니면 file_duplicate써서 새로 파일 만들기
+				current->fd_table[fd] = file_duplicate(f);
+				if (current->fd_table[fd] == NULL)
+					goto error;
+			}
 		}
 	}
-
-	sema_up(&current->fork_sema);
 	/* Finally, switch to the newly created process. */
 	if (succ)
 	{
+		sema_up(&current->fork_sema);
 		if_.R.rax = 0; // 자식 프로세스는 0을 반환
 		do_iret(&if_);
 	}
 error:
+	current->exit_status = -1;
+	sema_up(&current->fork_sema);
 	thread_exit();
 }
 
@@ -257,62 +280,19 @@ int process_exec(void *f_name)
 	/* We first kill the current context */
 	process_cleanup();
 
-	// todo
-	char *argv[64]; // 인자 64개까지 받음
-	int argc = 0;
-	char *save_ptr;
-	for (char *token = strtok_r(file_name, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr))
-	{
-		if (argc >= 64)
-			break;
-		argv[argc++] = token;
-	}
-
 	/* And then load the binary */
 	success = load(file_name, &_if);
 
+	palloc_free_page(file_name);
 	/* If load failed, quit. */
 	if (!success)
 	{
-		palloc_free_page(file_name);
 		return -1;
 	}
 
-	_if.R.rsi = (uint64_t)push_argument(argv, argc, &_if.rsp);
-	_if.R.rdi = argc;
-
-	palloc_free_page(file_name);
 	/* Start switched process. */
 	do_iret(&_if);
 	NOT_REACHED();
-}
-
-// rsp에 argv를 넣어주고 argv의 시작주소를 리턴
-char *push_argument(char **argv, int argc, void **rsp_ptr)
-{
-	intptr_t cur_rsp = (uintptr_t)*rsp_ptr; // 현재 스택 최상단 주소
-	void *argv_ptr[65];						// argv[n]을 가리키는 포인터 배열
-	for (int i = argc - 1; i >= 0; i--)
-	{
-		size_t cur_len = strlen(argv[i]) + 1;
-		cur_rsp -= cur_len;
-		memcpy((void *)cur_rsp, argv[i], cur_len);
-		argv_ptr[i] = cur_rsp;
-	}
-	argv_ptr[argc] = NULL;
-	cur_rsp = cur_rsp & ~0x7;
-	for (int i = argc; i >= 0; i--)
-	{
-		cur_rsp -= sizeof(void *);
-		*(void **)cur_rsp = argv_ptr[i];
-	}
-	char *argv_start = cur_rsp; // argv_ptr[0]의 주소 -> rsi에 저장할 주소
-	// return address(dummy) 푸시
-	cur_rsp -= sizeof(void *);
-	memset((void *)cur_rsp, 0, sizeof(void *)); // 0으로 채워서 NULL로 만듬
-
-	*rsp_ptr = cur_rsp; // 스택 최상단(가장 낮은 주소) -> rsp에 저장할 주소
-	return (char *)argv_start;
 }
 
 /* Waits for thread TID to die and returns its exit status.  If
@@ -329,7 +309,6 @@ int process_wait(tid_t child_tid)
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	struct thread *cur = thread_current();
 	struct thread *child = get_thread_by_tid(child_tid);
 	int exit_code = -1;
 	if (child == NULL || child->waited)
@@ -351,25 +330,31 @@ void process_exit(void)
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
-	int fd;
-	for (fd = 2; fd < curr->fd_table_size; fd++)
-	{ // 0은 표준 입력, 1은 표준 출력, 2는 표준 에러 출력
-		struct file *f = curr->fd_table[fd];
-		if (f != NULL)
-		{
-			file_close(f);			   // 열린 파일을 닫음
-			curr->fd_table[fd] = NULL; // 파일 디스크립터를 NULL로 설정
-		}
-	}
-	// 정상적으로 실행했다면
-	if (curr->running_file != NULL)
+
+	// Only clean up fd_table if it was successfully allocated
+	if (curr->fd_table != NULL)
 	{
-		file_close(curr->running_file);
-		curr->running_file = NULL;
+		int fd;
+		for (fd = 2; fd < curr->fd_table_size; fd++)
+		{ // 0은 표준 입력, 1은 표준 출력, 2는 표준 에러 출력
+			struct file *f = curr->fd_table[fd];
+			if (f != NULL && f != STDIN && f != STDOUT)
+			{
+				decrease_ref_count(f);
+				if (check_ref_count(f) == 0)
+				{
+					file_close(f); // 열린 파일을 닫음
+				}
+				curr->fd_table[fd] = NULL; // 파일 디스크립터를 NULL로 설정
+			}
+		}
+		free(curr->fd_table);
 	}
+
+	// running_file은 process_cleanup에서 처리됨 (wait 전에 cleanup)
+	process_cleanup();
 	sema_up(&curr->wait_sema);
 	sema_down(&curr->exit_sema);
-	process_cleanup();
 	list_remove(&curr->child_elem);
 	free(curr->fd_table);
 }
@@ -379,6 +364,13 @@ process_cleanup(void)
 {
 	struct thread *curr = thread_current();
 	// free(curr->fd_table);
+
+	/* Close running file (file_close will call file_allow_write) */
+	if (curr->running_file != NULL)
+	{
+		file_close(curr->running_file);
+		curr->running_file = NULL;
+	}
 
 #ifdef VM
 	supplemental_page_table_kill(&curr->spt);
@@ -493,8 +485,12 @@ load(const char *file_name, struct intr_frame *if_)
 		goto done;
 	process_activate(thread_current());
 
+	// 파싱하기 (file_name은 이미 s_exec에서 복사본이므로 수정 가능)
+	char *save_ptr;
+	char *program_name = strtok_r(file_name, " ", &save_ptr);
+
 	/* Open executable file. */
-	file = filesys_open(file_name);
+	file = filesys_open(program_name);
 	if (file == NULL)
 	{
 		printf("load: %s: open failed\n", file_name);
@@ -576,9 +572,44 @@ load(const char *file_name, struct intr_frame *if_)
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+	// Argument passing
+	char *argv[64]; // 인자 64개까지 받음
+	int argc = 0;
+
+	// program_name부터 시작해서 나머지 인자들 파싱
+	argv[argc++] = program_name;
+	for (char *token = strtok_r(NULL, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr))
+	{
+		if (argc >= 64)
+			break;
+		argv[argc++] = token;
+	}
+
+	intptr_t cur_rsp = (uintptr_t)if_->rsp; // 현재 스택 최상단 주소
+	void *argv_ptr[65];						// argv[n]을 가리키는 포인터 배열
+	for (int i = argc - 1; i >= 0; i--)
+	{
+		size_t cur_len = strlen(argv[i]) + 1;
+		cur_rsp -= cur_len;
+		memcpy((void *)cur_rsp, argv[i], cur_len);
+		argv_ptr[i] = (void *)cur_rsp;
+	}
+	argv_ptr[argc] = NULL;
+	cur_rsp = cur_rsp & ~0x7;
+	for (int i = argc; i >= 0; i--)
+	{
+		cur_rsp -= sizeof(void *);
+		*(void **)cur_rsp = argv_ptr[i];
+	}
+	if_->R.rsi = cur_rsp; // argv_ptr[0]의 주소 -> rsi에 저장할 주소
+
+	// return address(dummy) 푸시
+	cur_rsp -= sizeof(void *);
+	memset((void *)cur_rsp, 0, sizeof(void *)); // 0으로 채워서 NULL로 만듬
+
+	if_->rsp = cur_rsp; // 스택 최상단(가장 낮은 주소) -> rsp에 저장할 주소
+	if_->R.rdi = argc;
 	success = true;
-	file_deny_write(file);
-	t->running_file = file;
 
 done:
 	/* We arrive here whether the load is successful or not. */
