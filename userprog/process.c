@@ -26,7 +26,7 @@
 #ifdef VM
 #include "vm/vm.h"
 #endif
-#define FD_TABLE_SIZE 2
+#define FD_TABLE_SIZE 128
 
 static void process_cleanup(void);
 static bool load(const char *file_name, struct intr_frame *if_);
@@ -77,13 +77,12 @@ initd(void *f_name)
 #endif
 
 	struct thread *t = thread_current();
-	t->fd_table = malloc(sizeof(struct file *) * FD_TABLE_SIZE);
+	t->fd_table = palloc_get_page(PAL_ZERO);
 	if (t->fd_table == NULL)
 	{
 		PANIC("Failed to allocate fd_table for initd\n");
 	}
-	memset(t->fd_table, 0, sizeof(struct file *) * FD_TABLE_SIZE);
-	t->fd_table_size = FD_TABLE_SIZE;
+	t->fd_table_size = PGSIZE / sizeof(struct file *);
 	process_init();
 
 	if (process_exec(f_name) < 0)
@@ -172,12 +171,12 @@ static void __do_fork(void *aux)
 	struct thread *parent = ((struct aux *)aux)->thread;
 	struct intr_frame *parent_if = ((struct aux *)aux)->if_;
 	free(aux);
-	current->fd_table_size = parent->fd_table_size;
-	current->fd_table = malloc(sizeof(struct file *) * parent->fd_table_size);
+	current->fd_table = palloc_get_page(PAL_ZERO);
 	if (current->fd_table == NULL)
 	{
 		goto error;
 	}
+	current->fd_table_size = PGSIZE / sizeof(struct file *);
 	process_init();
 	bool succ = true;
 	/* 1. Read the cpu context to local stack. */
@@ -338,7 +337,7 @@ void process_exit(void)
 				curr->fd_table[fd] = NULL; // 파일 디스크립터를 NULL로 설정
 			}
 		}
-		free(curr->fd_table);
+		palloc_free_page(curr->fd_table);
 	}
 
 	// running_file은 process_cleanup에서 처리됨 (wait 전에 cleanup)

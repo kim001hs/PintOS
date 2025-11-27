@@ -14,7 +14,7 @@
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
-#define FD_TABLE_SIZE 2
+#define FD_TABLE_SIZE 128
 
 /* 	Random value for struct thread's `magic' member.
 	Used to detect stack overflow.  See the big comment at the top

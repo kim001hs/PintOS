@@ -461,16 +461,15 @@ static void s_check_fd(int fd)
 
 static int realloc_fd_table(struct thread *t)
 {
-	int new_size = t->fd_table_size * 2;
-	struct file **new_table = malloc(sizeof(struct file *) * new_size);
-	if (new_table == NULL)
+	/* fd_table is now a single palloc page, so we cannot realloc.
+	   The maximum size is PGSIZE / sizeof(struct file *).
+	   If we've already hit that limit, return -1. */
+	int max_size = PGSIZE / sizeof(struct file *);
+	if (t->fd_table_size >= max_size)
 	{
 		return -1;
 	}
-	memset(new_table, 0, sizeof(struct file *) * new_size);
-	memcpy(new_table, t->fd_table, sizeof(struct file *) * t->fd_table_size);
-	free(t->fd_table);
-	t->fd_table = new_table;
-	t->fd_table_size = new_size;
+	/* fd_table was already allocated as a full page, just expand the logical size */
+	t->fd_table_size = max_size;
 	return 1;
 }
